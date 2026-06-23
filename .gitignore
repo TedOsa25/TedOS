@@ -1,5 +1,8 @@
 .DS_Store
-runtime/*.tmp
+
 runtime/cache/
 runtime/logs/
+runtime/*.tmp
+
 *.log
+*.swp
