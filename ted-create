@@ -1,0 +1,61 @@
+#!/bin/bash
+
+TYPE=$1
+NAME=$2
+
+if [ -z "$TYPE" ] || [ -z "$NAME" ]; then
+    echo ""
+    echo "TedOS Generator"
+    echo ""
+    echo "Usage:"
+    echo "./ted-create agent NAME"
+    echo "./ted-create skill NAME"
+    echo "./ted-create loop NAME"
+    echo "./ted-create workflow NAME"
+    echo "./ted-create project NAME"
+    echo "./ted-create memory NAME"
+    echo "./ted-create subagent NAME"
+    echo ""
+    exit 1
+fi
+
+case "$TYPE" in
+
+agent)
+    cp scaffold/templates/agent.md agents/${NAME}.md
+    ;;
+
+subagent)
+    cp scaffold/templates/subagent.md subagents/${NAME}.md
+    ;;
+
+skill)
+    cp scaffold/templates/skill.md skills/${NAME}.md
+    ;;
+
+loop)
+    cp scaffold/templates/loop.md loops/${NAME}.md
+    ;;
+
+workflow)
+    mkdir -p workflows
+    cp scaffold/templates/workflow.md workflows/${NAME}.md
+    ;;
+
+memory)
+    cp scaffold/templates/memory.md memory/${NAME}.md
+    ;;
+
+project)
+    mkdir -p projects/${NAME}
+    cp scaffold/templates/project.md projects/${NAME}/README.md
+    ;;
+
+*)
+    echo "Unknown type."
+    exit 1
+    ;;
+esac
+
+echo ""
+echo "✅ Created $TYPE: $NAME"

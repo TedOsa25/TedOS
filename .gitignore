@@ -1,0 +1,5 @@
+.DS_Store
+runtime/*.tmp
+runtime/cache/
+runtime/logs/
+*.log

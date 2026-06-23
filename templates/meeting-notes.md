@@ -1,0 +1,22 @@
+cd ~/Desktop/TedOs/ai-os/automation
+
+nano morning.md
+nano evening.md
+nano daily.md
+nano weekly.md
+nano monthly.md
+nano release.md
+nano post-deploy.md
+nano customer-followup.md
+nano competitor-watch.md
+nano seo.md≈
+nano morning.md
+nano evening.md
+nano daily.md
+nano weekly.md
+nano monthly.md
+nano release.md
+nano post-deploy.md
+nano customer-followup.md
+nano competitor-watch.md
+nano seo.md

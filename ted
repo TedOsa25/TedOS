@@ -1,0 +1,79 @@
+#!/bin/bash
+
+PROJECTS="$HOME/Desktop/TedOs"
+
+case "$1" in
+
+doctor)
+    ./doctor.sh
+    ;;
+
+bootstrap)
+    ./bootstrap.sh
+    ;;
+
+heycarbo)
+    cd "$PROJECTS/HeyCarbo"
+    echo "🚀 Loading HeyCarbo..."
+    echo "CLAUDE.md loaded."
+    ;;
+
+heyaudit)
+    cd "$PROJECTS/HeyAudit"
+    echo "🚀 Loading HeyAudit..."
+    echo "CLAUDE.md loaded."
+    ;;
+
+heymigo)
+    cd "$PROJECTS/HeyMigo"
+    echo "🚀 Loading HeyMigo..."
+    echo "CLAUDE.md loaded."
+    ;;
+
+sales)
+    cat loops/sales-research.md
+    ;;
+
+marketing)
+    cat loops/marketing.md
+    ;;
+
+competitor)
+    cat loops/competitor-analysis.md
+    ;;
+
+review)
+    cat loops/code-review.md
+    ;;
+
+bugfix)
+    cat loops/bugfix.md
+    ;;
+
+improve)
+    cat loops/build-feature.md
+    ;;
+
+*)
+
+echo ""
+echo "TedOS"
+echo ""
+echo "Commands"
+echo ""
+echo "ted doctor"
+echo "ted bootstrap"
+echo "ted heycarbo"
+echo "ted heyaudit"
+echo "ted heymigo"
+echo "ted improve"
+echo "ted review"
+echo "ted bugfix"
+echo "ted sales"
+echo "ted marketing"
+echo "ted competitor"
+echo ""
+
+;;
+
+esac
