@@ -22,6 +22,10 @@ Understand Goal
 
 ↓
 
+Load Policies
+
+↓
+
 Classify Task
 
 ↓
@@ -31,6 +35,10 @@ Load Required Memory
 ↓
 
 Load Required Skills
+
+↓
+
+Load Required Connectors
 
 ↓
 
@@ -51,6 +59,10 @@ Execute
 ↓
 
 Review
+
+↓
+
+Update Runtime State
 
 ↓
 
