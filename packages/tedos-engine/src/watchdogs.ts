@@ -60,8 +60,18 @@ export const EXECUTIVE_REPORT = {
   sources: [MAIN_LOOP.id, ...WATCHDOGS.map((w) => w.id)],
 } as const;
 
-/** The guardrails every watchdog obeys (read-only; only the Main Loop implements). */
+/**
+ * The guardrails every watchdog obeys (read-only; only the Main Loop implements).
+ * These mirror the canonical policy — the single source of truth is
+ * `ai-os/BOOTSTRAP.md` (TedOS Operating System — Global Policies). Per the Loop
+ * Policy, every watchdog loads the bootstrap at start; no component defines its
+ * own rules.
+ */
 export const GUARDRAILS = {
+  /** Single source of truth for all global policies. */
+  source: "ai-os/BOOTSTRAP.md — TedOS Operating System — Global Policies",
+  /** Loaded at the start of every loop/watchdog/agent (Loop Policy). */
+  loadsOnStart: ["bootstrap", "runtime", "policies", "memory", "knowledge"],
   allowed: ["research", "analysis", "read", "reports", "goalCandidates", "prioritization"],
   forbidden: ["deploy", "merge", "main", "compliance", "co2", "billing", "pricing", "security", "migrations", "product-logic"],
   highRisk: "auto-creates an approval request; never auto-actioned",

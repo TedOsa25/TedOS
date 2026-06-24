@@ -38,6 +38,8 @@ Main Loop + Health, UX, Strategy, Competitor, Security, Growth, Marketing, Custo
 
 High-risk topics automatically produce an **approval request**. The Main Loop is the only instance that prioritizes, approves, and implements GoalCandidates — LOW risk on a feature branch (never `main`, never merge, never deploy), MEDIUM/HIGH escalated for approval.
 
+These guardrails are not defined here — they **mirror the single source of truth** in [`ai-os/BOOTSTRAP.md` → TedOS Operating System — Global Policies](../../../BOOTSTRAP.md). Per the **Loop Policy**, every loop, watchdog and agent loads the Bootstrap (+ Runtime, Policies, Memory, Knowledge; Brandbook for marketing) at start. No component defines its own rules.
+
 ## Learning
 
 All feeds live under `learning-data/`. The Executive Report reads them daily and appends a dated summary to `executive-reports.json`.

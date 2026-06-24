@@ -55,4 +55,10 @@ describe("TedOS watchdog manifest", () => {
       assert.ok(forbidden.includes(f), `forbidden: ${f}`);
     }
   });
+
+  test("guardrails reference the BOOTSTRAP single source of truth (Loop Policy)", () => {
+    assert.match(GUARDRAILS.source, /BOOTSTRAP\.md/);
+    const loads: readonly string[] = GUARDRAILS.loadsOnStart;
+    assert.ok(loads.includes("bootstrap"));
+  });
 });
