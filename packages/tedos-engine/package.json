@@ -1,0 +1,41 @@
+{
+  "name": "tedos-engine",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "research": "tsx src/research-demo.ts",
+    "tedos": "tsx src/tedos-loop.ts",
+    "skill": "tsx src/skill-demo.ts",
+    "connector": "tsx src/connector-demo.ts",
+    "learn": "tsx src/learning-demo.ts",
+    "feedback": "tsx src/feedback-demo.ts",
+    "route": "tsx src/subagent-demo.ts",
+    "connectors": "tsx src/connectors-demo.ts",
+    "watchdogs": "tsx src/watchdogs-demo.ts",
+    "typecheck": "tsc --noEmit",
+    "test:research": "tsx src/research/research.test.ts",
+    "test:loop": "tsx src/tedos-loop.test.ts",
+    "test:skill": "tsx src/skill-loader.test.ts",
+    "test:connector": "tsx src/connector-router.test.ts",
+    "test:reasoner": "tsx src/reasoner.test.ts",
+    "test:learning": "tsx src/learning.test.ts",
+    "test:feedback": "tsx src/feedback.test.ts",
+    "test:routing": "tsx src/subagent-router.test.ts",
+    "test:connectors": "tsx src/connectors.test.ts",
+    "test:projects": "tsx src/project-selection.test.ts",
+    "test:watchdogs": "tsx src/watchdogs.test.ts",
+    "test": "npm run test:research && npm run test:loop && npm run test:skill && npm run test:connector && npm run test:reasoner && npm run test:learning && npm run test:feedback && npm run test:routing && npm run test:connectors && npm run test:projects && npm run test:watchdogs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
+    "@types/node": "^26.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
