@@ -14,6 +14,7 @@
     "route": "tsx src/subagent-demo.ts",
     "connectors": "tsx src/connectors-demo.ts",
     "watchdogs": "tsx src/watchdogs-demo.ts",
+    "prioritize": "tsx src/prioritization-demo.ts",
     "typecheck": "tsc --noEmit",
     "test:research": "tsx src/research/research.test.ts",
     "test:loop": "tsx src/tedos-loop.test.ts",
@@ -26,7 +27,8 @@
     "test:connectors": "tsx src/connectors.test.ts",
     "test:projects": "tsx src/project-selection.test.ts",
     "test:watchdogs": "tsx src/watchdogs.test.ts",
-    "test": "npm run test:research && npm run test:loop && npm run test:skill && npm run test:connector && npm run test:reasoner && npm run test:learning && npm run test:feedback && npm run test:routing && npm run test:connectors && npm run test:projects && npm run test:watchdogs"
+    "test:prioritization": "tsx src/goal-prioritization.test.ts",
+    "test": "npm run test:research && npm run test:loop && npm run test:skill && npm run test:connector && npm run test:reasoner && npm run test:learning && npm run test:feedback && npm run test:routing && npm run test:connectors && npm run test:projects && npm run test:watchdogs && npm run test:prioritization"
   },
   "keywords": [],
   "author": "",
