@@ -9,6 +9,7 @@ The scheduler runs one continuous **Main Loop** plus twelve **daily watchdogs** 
 | Time | Job | Feed |
 |------|-----|------|
 | every 15 min | **Main Loop** — implements highest-value safe goal; escalates MEDIUM/HIGH | `loop-outcomes.json` |
+| 07:00 | **Growth & Content Watchdog** *(new)* — brandbook-validated, approval-gated content drafts (see [`content-watchdog.md`](./content-watchdog.md)) | `content-findings.json` |
 | 08:00 | Health Watchdog | `health-findings.json` |
 | 09:00 | UX Watchdog | `ux-findings.json` |
 | 10:00 | Product Strategy Watchdog | `strategy-findings.json` |

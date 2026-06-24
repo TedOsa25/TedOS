@@ -29,8 +29,9 @@ export const MAIN_LOOP = {
   mission: "Select the highest-value safe GoalCandidate, implement+validate LOW risk on the feature branch, escalate MEDIUM/HIGH for approval.",
 } as const;
 
-/** The twelve daily watchdogs, in schedule order (08:00 → 17:30). */
+/** The daily watchdogs, in schedule order (07:00 → 17:30). */
 export const WATCHDOGS: Watchdog[] = [
+  { id: "content", name: "Growth & Content Watchdog", cron: "2 7 * * *", time: "07:00", feed: "content-findings.json", mission: "Research ESG/Scope3/CSRD/SEO/competitor/LinkedIn trends → brandbook-validated, approval-gated content drafts (no auto-publish)." },
   { id: "health", name: "Health Watchdog", cron: "4 8 * * *", time: "08:00", feed: "health-findings.json", mission: "Build/types/tests/coverage/deps/security/perf/dead-code health." },
   { id: "ux", name: "UX Watchdog", cron: "6 9 * * *", time: "09:00", feed: "ux-findings.json", mission: "Navigation, mobile, a11y, typography, components, states, design consistency." },
   { id: "strategy", name: "Product Strategy Watchdog", cron: "8 10 * * *", time: "10:00", feed: "strategy-findings.json", mission: "Supplier-network strategy: onboarding, Scope 3, PCF, gaps, network effects." },
@@ -90,8 +91,9 @@ export function validateSchedule(): { ok: boolean; errors: string[] } {
   for (const w of WATCHDOGS) {
     if (!w.feed.endsWith("-findings.json")) errors.push(`watchdog ${w.id} feed must end with -findings.json`);
   }
-  if (EXECUTIVE_REPORT.sources.length !== 13) {
-    errors.push(`Executive Report must read 13 sources, got ${EXECUTIVE_REPORT.sources.length}`);
+  const expectedSources = WATCHDOGS.length + 1; // Main Loop + every watchdog
+  if (EXECUTIVE_REPORT.sources.length !== expectedSources) {
+    errors.push(`Executive Report must read ${expectedSources} sources, got ${EXECUTIVE_REPORT.sources.length}`);
   }
 
   return { ok: errors.length === 0, errors };
