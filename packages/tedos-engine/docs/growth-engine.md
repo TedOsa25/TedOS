@@ -20,5 +20,5 @@ Research → Content → **Brand Guardian** → Preview → **Approval** → Pub
 ## Guardrails
 No auto-publish · no Brandbook changes · no invented facts · no greenwashing · only verifiable claims. High-risk → Approval Queue. Mirrors `ai-os/BOOTSTRAP.md` (single source of truth).
 
-## Known dependency (blocker)
-**No organic LinkedIn/Instagram publishing or analytics connector** is configured (only paid `meta-ads`). Until one is added, the pipeline stops at **Preview → Approval** (publishing is manual) and social metrics are entered manually. Tracked as GoalCandidate `connector-social-publishing`. A demo calendar can be sourced from the `gcal` connector once a booking link is set.
+## Social connectors (adapter built; credential-gated)
+`LinkedInConnector` + `InstagramConnector` (`src/connectors.ts`, routed via `ConnectorRouter`) are now registered. They are **inert until credentials exist**: `canPublish()` is false and `status()` reports "not configured" without `LINKEDIN_TOKEN` / `INSTAGRAM_TOKEN`. Publishing is **approval-gated** and additionally requires a live platform API integration — the adapter never posts on its own and no metrics are fabricated. Until tokens + the live API are provisioned, the pipeline stops at **Preview → Approval** (manual publish) and metrics are entered manually. A demo calendar can be sourced from `gcal` once a booking link is set.
