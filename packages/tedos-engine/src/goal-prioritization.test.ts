@@ -7,6 +7,10 @@ import {
   WEIGHTS,
   CATEGORY_RANK,
   TEST_DOWNGRADE,
+  GROWTH_LEVERS,
+  REVENUE_KPIS,
+  growthLeverRank,
+  isTechnicalGoal,
   businessScore,
   productFirstMode,
   prioritize,
@@ -76,6 +80,29 @@ describe("V1.2: engineering re-prioritization", () => {
     const crit = goal({ id: "crit", category: "engineering", criticalEngineering: true, dimensions: dims });
     const r = byId(prioritize([crit], STABLE_PFM), "crit");
     assert.equal(r.score, r.baseScore);
+  });
+});
+
+describe("Revenue Growth Loop", () => {
+  test("growth levers are ordered revenue → … → retention (8 levers)", () => {
+    assert.equal(GROWTH_LEVERS[0], "revenue-potential");
+    assert.equal(GROWTH_LEVERS[GROWTH_LEVERS.length - 1], "retention");
+    assert.equal(GROWTH_LEVERS.length, 8);
+    assert.ok(growthLeverRank("revenue-potential") < growthLeverRank("seo"));
+    assert.equal(growthLeverRank("not-a-lever"), GROWTH_LEVERS.length);
+  });
+
+  test("revenue KPIs include the funnel + reach metrics", () => {
+    for (const k of ["demoBookings", "trialSignups", "qualifiedLeads", "newSuppliers", "revenuePotentialEur"]) {
+      assert.ok((REVENUE_KPIS as readonly string[]).includes(k), `KPI: ${k}`);
+    }
+  });
+
+  test("technical categories are flagged for deferral; product/growth are not", () => {
+    for (const c of ["performance", "engineering", "tests"] as const) assert.equal(isTechnicalGoal(c), true);
+    for (const c of ["revenue", "growth", "marketing", "supplier", "sales", "ux", "customer"] as const) {
+      assert.equal(isTechnicalGoal(c), false);
+    }
   });
 });
 

@@ -45,6 +45,49 @@ export const CATEGORY_RANK: Record<GoalCategory, number> = {
   tests: 10,
 };
 
+// ─── Revenue Growth Loop ─────────────────────────────────────────────────────
+// HeyCarbo's top priority is growth. Every watchdog asks: "which ONE change
+// today brings the most additional revenue or qualified leads?" Technical goals
+// (performance/engineering/tests) are deprioritized UNLESS they are critical or
+// a risk (handled by criticalEngineering + the test/engineering downgrades).
+
+/** Ordered growth levers (1 = highest business priority). */
+export const GROWTH_LEVERS = [
+  "revenue-potential",
+  "lead-generation",
+  "trial-signups",
+  "demo-bookings",
+  "supplier-growth",
+  "organic-reach",
+  "seo",
+  "retention",
+] as const;
+export type GrowthLever = (typeof GROWTH_LEVERS)[number];
+
+/** Revenue KPIs surfaced in the Executive Report and fed back into Learning. */
+export const REVENUE_KPIS = [
+  "demoBookings",
+  "trialSignups",
+  "qualifiedLeads",
+  "newSuppliers",
+  "newEnterpriseLeads",
+  "organicReach",
+  "conversionRate",
+  "revenuePotentialEur",
+] as const;
+export type RevenueKpi = (typeof REVENUE_KPIS)[number];
+
+/** Rank of a growth lever (lower = higher priority); unknown levers sort last. */
+export function growthLeverRank(lever: string): number {
+  const i = (GROWTH_LEVERS as readonly string[]).indexOf(lever);
+  return i === -1 ? GROWTH_LEVERS.length : i;
+}
+
+/** A goal is "technical" (deferred unless critical/risk) when it is not product/growth. */
+export function isTechnicalGoal(category: GoalCategory): boolean {
+  return category === "performance" || category === "engineering" || category === "tests";
+}
+
 /** The seven scored dimensions (each 0–10). */
 export interface BusinessDimensions {
   revenueImpact: number;
