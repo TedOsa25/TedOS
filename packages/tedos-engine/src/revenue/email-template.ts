@@ -9,22 +9,33 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-/** Globally maintained assets — one source of truth for every email. */
+/**
+ * Globally maintained assets — ONE source of truth for every email. Swap the two
+ * files (banner.png · signature.html) or these env vars; no code change needed:
+ *   REVENUE_EMAIL_BANNER_PATH  · REVENUE_SIGNATURE_PATH · CALENDLY_URL · WEBSITE_URL
+ */
+const WEBSITE_URL = process.env.WEBSITE_URL ?? "https://heycarbo.com";
+
 export const EMAIL_ASSETS = {
   /** HeyCarbo corporate turquoise — buttons only (not lime/grey/blue). */
   turquoise: "#0d9488",
-  /** Central marketing banner (provided separately; swap via env). */
-  bannerUrl: process.env.REVENUE_EMAIL_BANNER_URL ?? "https://heycarbo.com/email/banner.png",
+  websiteUrl: WEBSITE_URL,
+  /**
+   * The ONE banner reference used in every email's <img src> — no copies, no
+   * base64. A URL for real sends; the preview resolves a relative path too.
+   */
+  bannerUrl:
+    process.env.REVENUE_EMAIL_BANNER_PATH ?? process.env.REVENUE_EMAIL_BANNER_URL ?? "assets/email-banner.png",
   /** Global Calendly link — all 1,700 emails share it. */
-  calendlyUrl: process.env.REVENUE_CALENDLY_URL ?? "https://calendly.com/ted-heycarbo/30min",
+  calendlyUrl: process.env.CALENDLY_URL ?? process.env.REVENUE_CALENDLY_URL ?? "https://calendly.com/ted-heycarbo/30min",
   /** 14-day trial landing (main CTA target for trial-oriented campaigns). */
-  trialUrl: process.env.REVENUE_TRIAL_URL ?? "https://heycarbo.com/trial",
+  trialUrl: process.env.REVENUE_TRIAL_URL ?? `${WEBSITE_URL}/trial`,
 } as const;
 
 /** The central banner as a referenced asset (for the Revenue Center preview). */
 export const EMAIL_BANNER = {
   industry: "zentral",
-  asset: process.env.REVENUE_EMAIL_BANNER_ASSET ?? "/public/email/banner.webp",
+  asset: EMAIL_ASSETS.bannerUrl,
   url: EMAIL_ASSETS.bannerUrl,
   industrySpecific: false,
 } as const
@@ -32,20 +43,33 @@ export const EMAIL_BANNER = {
 const FALLBACK_SIGNATURE =
   `<table cellpadding="0" cellspacing="0" style="margin-top:8px"><tr><td style="font-family:Inter,Arial,sans-serif;font-size:13px;color:#1c1917">` +
   `<strong>Ted Osammor</strong><br>Founder · HeyCarbo<br>` +
-  `<a href="https://heycarbo.com" style="color:#0d9488">heycarbo.com</a></td></tr></table>`
+  `<a href="${WEBSITE_URL}" style="color:#0d9488">heycarbo.com</a></td></tr></table>`
 
 let cachedSignature: string | null = null
 
-/** Load the central HTML signature from a file (provided separately). Cached. */
+/** Signature file candidates, in priority order (env → drop-in → legacy → fallback). */
+function signatureCandidates(): string[] {
+  return [
+    process.env.REVENUE_SIGNATURE_PATH,
+    resolve(process.cwd(), "../../../Sales/crm-heycarbo/assets/signature.html"),
+    resolve(process.cwd(), "../../../Sales/heycarbo_signature_FINAL.html"),
+  ].filter((p): p is string => Boolean(p));
+}
+
+/** Load the central HTML signature from a file, embedded AS-IS (never generated). Cached. */
 export function loadSignature(): string {
   if (cachedSignature !== null) return cachedSignature
-  const path =
-    process.env.REVENUE_SIGNATURE_PATH ?? resolve(process.cwd(), "../../../Sales/heycarbo_signature_FINAL.html")
-  try {
-    cachedSignature = existsSync(path) ? readFileSync(path, "utf8") : FALLBACK_SIGNATURE
-  } catch {
-    cachedSignature = FALLBACK_SIGNATURE
+  for (const p of signatureCandidates()) {
+    try {
+      if (existsSync(p)) {
+        cachedSignature = readFileSync(p, "utf8")
+        return cachedSignature
+      }
+    } catch {
+      /* try next candidate */
+    }
   }
+  cachedSignature = FALLBACK_SIGNATURE
   return cachedSignature
 }
 
