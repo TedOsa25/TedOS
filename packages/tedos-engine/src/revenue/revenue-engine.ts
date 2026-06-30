@@ -13,7 +13,15 @@ import type { Storage } from "./../storage.js";
 import { checkContent } from "./../brand-guardian.js";
 import { DistributionQueue, type DistributionJobInput } from "./../distribution-queue.js";
 import { type Account, loadAccounts, prioritize } from "./accounts.js";
-import { type BannerRef, bannerFor, bannerGaps } from "./banners.js";
+import { EMAIL_ASSETS, EMAIL_BANNER, renderEmail } from "./email-template.js";
+
+/** A referenced banner asset (the central email banner). */
+export interface BannerRef {
+  industry: string;
+  asset: string;
+  url: string;
+  industrySpecific: boolean;
+}
 
 /** Campaign types, chosen from the account's real relevance/pain signals. */
 export type CampaignType =
@@ -50,51 +58,70 @@ export function selectCampaign(a: Account): CampaignType {
   return "scope-3";
 }
 
-/** Result of the four quality gates + a composite score. */
+/** Result of the quality gates + the numeric scores shown in the Revenue Center. */
 export interface QualityResult {
   brand: boolean;
   tonality: boolean;
   spam: boolean;
   compliance: boolean;
-  qualityScore: number;
+  generic: boolean;
+  repetition: boolean;
+  concise: boolean;
+  qualityScore: number; // composite of all gates (0–100)
+  spamScore: number; // 0 clean … 100 spammy
+  brandScore: number; // 0 … 100 on-brand
   passed: boolean;
   issues: string[];
 }
 
 const SALESY = ["garantiert", "beste lösung", "nr. 1", "weltweit führend", "marktführer", "unschlagbar", "konkurrenzlos"];
 const SPAM_RE = [/!{2,}/, /\bgratis\b/i, /jetzt kaufen/i, /\$\$\$/, /100\s*% kostenlos/i, /klicken sie hier/i];
+const GENERIC = ["viele unternehmen", "unsere kunden", "wir sprechen häufig", "oft sehen wir", "in der heutigen", "zahlreiche firmen", "unternehmen wie ihres"];
+/** Max words in the personalized body so it reads in under 30 seconds. */
+const MAX_BODY_WORDS = 130;
 
-function gateBrand(t: string): { ok: boolean; issues: string[] } {
-  const c = checkContent(t);
-  return { ok: c.ok, issues: c.ok ? [] : ["brand: greenwashing/unverifiable claim"] };
+const G = (ok: boolean, issue: string) => ({ ok, issues: ok ? [] : [issue] });
+
+function gateBrand(t: string) { return G(checkContent(t).ok, "brand: greenwashing/unverifiable claim"); }
+function gateTonality(t: string) { const h = SALESY.find((s) => t.toLowerCase().includes(s)); return G(!h, `tonality: salesy phrase "${h}"`); }
+function gateCompliance(t: string) { return G(!/\b(spart|reduzier\w*|senkt|saves?)\b.{0,24}\d+\s*%/i.test(t), "compliance: unsubstantiated quantified claim"); }
+function gateGeneric(t: string) { const h = GENERIC.find((g) => t.toLowerCase().includes(g)); return G(!h, `generic phrase "${h}"`); }
+function gateRepetition(t: string) {
+  const sents = t.split(/[.!?]\s+/).map((s) => s.trim().toLowerCase()).filter((s) => s.length > 24);
+  const seen = new Set<string>(); let rep = false;
+  for (const s of sents) { if (seen.has(s)) rep = true; seen.add(s); }
+  return G(!rep, "repetition: duplicate sentence");
 }
-function gateTonality(t: string): { ok: boolean; issues: string[] } {
-  const l = t.toLowerCase();
-  const hit = SALESY.find((s) => l.includes(s));
-  return { ok: !hit, issues: hit ? [`tonality: salesy phrase "${hit}"`] : [] };
-}
-function gateSpam(t: string): { ok: boolean; issues: string[] } {
-  const re = SPAM_RE.find((r) => r.test(t));
-  if (re) return { ok: false, issues: ["spam: trigger phrase"] };
-  // "Shouting" = 3+ consecutive all-caps words. Isolated acronyms (ISO, OEM,
-  // PCF) and all-caps company names (GRAFE) are legitimate and not flagged.
-  const shouting = /\b[A-ZÄÖÜ]{3,}\b(?:\s+\b[A-ZÄÖÜ]{3,}\b){2,}/.test(t);
-  return { ok: !shouting, issues: shouting ? ["spam: shouting (all-caps run)"] : [] };
-}
-function gateCompliance(t: string): { ok: boolean; issues: string[] } {
-  // No quantified savings promise we cannot substantiate.
-  const bad = /\b(spart|reduzier\w*|senkt|saves?)\b.{0,24}\d+\s*%/i.test(t);
-  return { ok: !bad, issues: bad ? ["compliance: unsubstantiated quantified claim"] : [] };
+function gateConcise(body: string) { const w = body.trim().split(/\s+/).filter(Boolean).length; return G(w <= MAX_BODY_WORDS, `too long (${w} words, >${MAX_BODY_WORDS})`); }
+
+function computeSpamScore(t: string): number {
+  let s = 0;
+  if (SPAM_RE.some((r) => r.test(t))) s += 50;
+  s += (t.match(/!/g) ?? []).length * 8;
+  if (/\b[A-ZÄÖÜ]{3,}\b(?:\s+\b[A-ZÄÖÜ]{3,}\b){2,}/.test(t)) s += 30; // shouting (all-caps run)
+  return Math.min(100, s);
 }
 
-/** Run all gates over the account's key copy (email + linkedin + follow-ups). */
-export function qualityCheck(texts: string[]): QualityResult {
+/**
+ * Quality gates over the personalized copy. `body` (the email's personalized
+ * text) drives the conciseness + repetition checks; everything else runs over
+ * all copy. Returns the gates plus the spam/brand scores the UI displays.
+ */
+export function qualityCheck(texts: string[], body?: string): QualityResult {
   const joined = texts.join("\n\n");
-  const b = gateBrand(joined), t = gateTonality(joined), s = gateSpam(joined), c = gateCompliance(joined);
-  const issues = [...b.issues, ...t.issues, ...s.issues, ...c.issues];
-  const passes = [b.ok, t.ok, s.ok, c.ok].filter(Boolean).length;
-  const qualityScore = Math.round((passes / 4) * 100);
-  return { brand: b.ok, tonality: t.ok, spam: s.ok, compliance: c.ok, qualityScore, passed: issues.length === 0, issues };
+  const bodyText = body ?? joined;
+  const b = gateBrand(joined), t = gateTonality(joined), c = gateCompliance(joined), g = gateGeneric(joined);
+  const rep = gateRepetition(bodyText), con = gateConcise(bodyText);
+  const spamScore = computeSpamScore(joined);
+  const spam = spamScore < 30;
+  const brandScore = Math.max(0, 100 - (b.ok ? 0 : 50) - (t.ok ? 0 : 25) - (c.ok ? 0 : 20) - (g.ok ? 0 : 15));
+  const gates = [b.ok, t.ok, spam, c.ok, g.ok, rep.ok, con.ok];
+  const issues = [...b.issues, ...t.issues, ...(spam ? [] : [`spam score ${spamScore}`]), ...c.issues, ...g.issues, ...rep.issues, ...con.issues];
+  return {
+    brand: b.ok, tonality: t.ok, spam, compliance: c.ok, generic: g.ok, repetition: rep.ok, concise: con.ok,
+    qualityScore: Math.round((gates.filter(Boolean).length / gates.length) * 100),
+    spamScore, brandScore, passed: issues.length === 0, issues,
+  };
 }
 
 /** Everything prepared for one real account. */
@@ -113,7 +140,14 @@ export interface RevenueOpportunity {
   followUp2: string;
   summary: string;
   banner: BannerRef;
+  /** Main CTA (turquoise button) — text + target. */
+  ctaText: string;
+  ctaUrl: string;
   quality: QualityResult;
+  /** How specifically the copy references this company's real signals (0–100). */
+  personalizationScore: number;
+  /** How much real intelligence we hold on the account (0–100). */
+  confidenceScore: number;
   fitScore: number;
   revenueScore: number;
   buyingIntent: number;
@@ -121,38 +155,99 @@ export interface RevenueOpportunity {
   createdAt: string;
 }
 
-const firstName = (title: string | undefined): string => (title ? title.split(/[/·,]/)[0]!.trim() : "Nachhaltigkeitsverantwortliche:r");
-const SIGNATURE = (banner: BannerRef): string =>
-  `<table cellpadding="0" cellspacing="0"><tr><td style="font-family:Inter,Arial,sans-serif;font-size:13px;color:#1c1917">` +
-  `<strong>Ted Osammor</strong><br>Founder · HeyCarbo<br>` +
-  `<a href="https://heycarbo.com" style="color:#0d9488">heycarbo.com</a><br>` +
-  `<img src="${banner.url}" alt="HeyCarbo" width="500" style="margin-top:8px;max-width:100%"></td></tr></table>`;
+/** Named OEMs mentioned in the real supplier-pressure signal (up to 3). */
+const OEM_RE = /\b(BMW|VW|Volkswagen|Daimler|Mercedes|Audi|Porsche|Bosch|ZF|Continental|Stellantis|Ford|Toyota|Renault|Volvo|Tesla|Magna|Valeo)\b/gi;
+function namedOems(sp: string | undefined): string | null {
+  if (!sp) return null;
+  const m = sp.match(OEM_RE);
+  if (!m) return null;
+  return Array.from(new Set(m.map((x) => (x.toUpperCase() === "VOLKSWAGEN" ? "VW" : x.toUpperCase())))).slice(0, 3).join(", ");
+}
+
+/**
+ * The personalized opener — weaves 2–3 SPECIFIC real signals (OEM relationships,
+ * certifications, products, customers, Catena-X/PCF/CSRD relevance) so it reads
+ * like an AE wrote it after a 10-minute research. Derived ONLY from real fields;
+ * no generic phrasing, no invented facts. Always follows "Guten Tag,".
+ */
+function personalizedIntro(a: Account): string {
+  const oems = namedOems(a.supplierPressure);
+  const cert = a.certifications[0];
+  // Sentence 1 — the most specific real hook available.
+  let s1: string;
+  if (oems) {
+    s1 = `wir haben gesehen, dass ${a.company} als Zulieferer u. a. für ${oems} produziert — und genau diese OEMs verlangen inzwischen ISO-14067-konforme PCF-Daten entlang Catena-X.`;
+  } else if (cert && a.products) {
+    s1 = `mit Ihrer ${cert}-Zertifizierung und dem Fokus auf ${a.products} steht ${a.company} unter wachsendem Druck, CO₂-Daten auf Produkt- und Lieferantenebene nachzuweisen.`;
+  } else if (cert) {
+    s1 = `da ${a.company} ${cert}-zertifiziert ist, sind belastbare CO₂- und Nachhaltigkeitsdaten für Sie ohnehin geschäftskritisch.`;
+  } else if (a.products) {
+    s1 = `uns ist aufgefallen, dass ${a.company} mit ${a.products} in einem Segment tätig ist, in dem Kunden zunehmend Scope-3-Daten anfragen.`;
+  } else if (a.catenaXRelevance) {
+    s1 = `da ${a.company} im Catena-X-/Automotive-Umfeld tätig ist, werden PCF-Daten nach ISO 14067 für Sie zunehmend zur Pflicht.`;
+  } else {
+    s1 = `wir haben gesehen, dass ${a.company} als ${a.industry}-Unternehmen vor wachsenden CO₂-Anforderungen Ihrer Kunden und der Regulatorik steht.`;
+  }
+  // Sentence 2 — a second real hook, only when the data supports it.
+  let s2 = "";
+  if (a.csrdRelevance && !/csrd/i.test(s1)) {
+    s2 = ` Mit der näher rückenden CSRD-Berichtspflicht wird die konsolidierte Scope-1/2/3-Erfassung für Sie schnell aufwändig.`;
+  } else if (a.customers.length && !oems) {
+    s2 = ` Gerade gegenüber Kunden wie ${a.customers.slice(0, 2).join(" und ")} zahlt sich eine saubere Datenbasis direkt aus.`;
+  } else if (a.catenaXRelevance && !/catena/i.test(s1)) {
+    s2 = ` Über Catena-X werden diese Daten zunehmend standardisiert eingefordert.`;
+  }
+  return (s1 + s2).trim();
+}
+
+/** How much real intelligence we hold on the account (data completeness, 0–100). */
+function confidenceScore(a: Account): number {
+  const signals = [
+    a.email, a.website, a.contactTitle, a.certifications.length, a.painPoints.length,
+    a.supplierPressure, a.pcfRelevance || a.catenaXRelevance || a.csrdRelevance,
+    a.products, a.customers.length, a.employees,
+  ];
+  return Math.round((signals.filter(Boolean).length / signals.length) * 100);
+}
+
+/** How many SPECIFIC real signals the intro actually references (0–100). */
+function personalizationScore(a: Account, intro: string): number {
+  let p = 0;
+  if (intro.includes(a.company)) p += 25;
+  if (a.certifications.some((c) => intro.includes(c))) p += 20;
+  if (namedOems(a.supplierPressure) && /\b(BMW|VW|Daimler|Mercedes|Audi|Porsche|Bosch|ZF|Continental|Stellantis|Ford|Toyota|Renault|Volvo|Tesla|Magna|Valeo)\b/.test(intro)) p += 20;
+  if (a.products && intro.includes(a.products)) p += 15;
+  if (a.customers.some((c) => intro.includes(c))) p += 10;
+  if (/catena|pcf|iso\s?14067|csrd|scope/i.test(intro)) p += 10;
+  return Math.min(100, p);
+}
+
+/** Campaign-dependent main CTA (text + target). */
+function ctaForCampaign(c: CampaignType): { text: string; url: string } {
+  if (c === "supplier-management" || c === "catena-x" || c === "csrd") {
+    return { text: "Kostenlose Demo vereinbaren", url: EMAIL_ASSETS.calendlyUrl };
+  }
+  return { text: "Jetzt 14 Tage kostenlos testen", url: EMAIL_ASSETS.trialUrl };
+}
 
 /** Build all artifacts for one account from its REAL data. */
 export function buildOpportunity(a: Account, clock: () => string): RevenueOpportunity {
   const campaign = selectCampaign(a);
-  const banner = bannerFor(a.industry);
-  // Use a SHORT clause of the real pain (first sentence, trimmed) — tighter copy
-  // and avoids embedding multi-paragraph narratives verbatim.
+  const banner: BannerRef = { ...EMAIL_BANNER };
+  // Short clause of the REAL pain (first sentence, trimmed) — tighter copy.
   const rawPain = a.painPoints[0] ?? `${campaign}-Anforderungen Ihrer Kunden`;
   const pain = (rawPain.split(/[.;|]/)[0] ?? rawPain).slice(0, 160).trim();
   const value = CAMPAIGN_VALUE[campaign];
-  const contact = firstName(a.contactTitle);
 
-  const intro = `Hallo ${contact},\n\nals ${a.industry}-Unternehmen steht ${a.company} zunehmend unter Druck, belastbare CO₂-Daten gegenüber Kunden und Regulatorik zu liefern.`;
-  const painLine = `Konkret beobachten wir bei vergleichbaren Unternehmen: ${pain}`;
-  const why = `Genau hier setzt HeyCarbo an: ${value}. Aufgebaut für den Mittelstand, nicht für Berater.`;
-  const cta = "Demo buchen";
+  // Personalized top part (the only part the engine generates per account).
+  const greeting = "Guten Tag,";
+  const intro = personalizedIntro(a);
+  const painLine = `Konkret heißt das: ${pain}.`;
+  const benefit = `Genau hier setzt HeyCarbo an: ${value}. Aufgebaut für den Mittelstand, nicht für Berater.`;
+  const cta = ctaForCampaign(campaign);
 
-  const emailHtml =
-    `<div style="font-family:Inter,Arial,sans-serif;font-size:14px;line-height:1.6;color:#1c1917">` +
-    `<p>${intro.replace(/\n/g, "<br>")}</p>` +
-    `<p>${painLine}</p>` +
-    `<p>${why}</p>` +
-    `<p><img src="${banner.url}" alt="${a.industry}" width="500" style="max-width:100%;border-radius:8px"></p>` +
-    `<p><a href="https://heycarbo.com/demo" style="background:#0d9488;color:#fff;padding:10px 18px;border-radius:999px;text-decoration:none">${cta}</a></p>` +
-    `<p><strong>14 Tage kostenlos testen</strong> – ohne Kreditkarte.</p>` +
-    SIGNATURE(banner) + `</div>`;
+  // Central layout appended automatically (banner · turquoise CTA · Calendly · signature).
+  const emailHtml = renderEmail({ greeting, intro, pain: painLine, benefit, ctaText: cta.text, ctaUrl: cta.url });
 
   const subjects = [
     `${a.company}: CO₂-Daten in Minuten statt Wochen`,
@@ -160,19 +255,25 @@ export function buildOpportunity(a: Account, clock: () => string): RevenueOpport
     `Belastbare Lieferantendaten für ${a.company}?`,
   ];
   const previewText = `${value} — in Minuten statt Wochen.`;
-  const linkedin = `Hallo ${contact}, ich verfolge, wie ${a.industry}-Unternehmen wie ${a.company} das Thema CO₂-/Scope-3-Daten angehen. Falls das bei Ihnen gerade Thema ist, tausche ich mich gern kurz aus — ganz unverbindlich.`;
-  const followUp1 = `Hallo ${contact}, ich wollte kurz nachfassen — falls ${pain.toLowerCase()} bei ${a.company} relevant ist, zeige ich in 15 Minuten, wie HeyCarbo den Aufwand senkt. Passt diese Woche?`;
-  const followUp2 = `Hallo ${contact}, ich lasse es für heute dabei. Wenn ${campaign}-Themen für ${a.company} später relevant werden, melden Sie sich gern. Hier ein kurzer Leitfaden zum Einstieg: heycarbo.com/scope3.`;
+  const linkedin = `Guten Tag, ich verfolge, wie ${a.industry}-Unternehmen wie ${a.company} das Thema CO₂-/Scope-3-Daten angehen. Falls das bei Ihnen gerade Thema ist, tausche ich mich gern kurz aus — ganz unverbindlich.`;
+  const followUp1 = `Guten Tag, ich wollte kurz nachfassen — falls ${pain.toLowerCase()} bei ${a.company} relevant ist, zeige ich in 15 Minuten, wie HeyCarbo den Aufwand senkt. Passt diese Woche?`;
+  const followUp2 = `Guten Tag, ich lasse es für heute dabei. Wenn ${campaign}-Themen für ${a.company} später relevant werden, melden Sie sich gern: ${EMAIL_ASSETS.calendlyUrl}`;
   const summary =
     `Warum HeyCarbo passt: ${a.industry}, Fit ${a.fitScore}/100, Revenue-Potenzial ${a.revenueScore}/100. ` +
     `Größter vermuteter Pain: ${pain}. Kampagne „${campaign}" gewählt, weil die realen Signale (Relevanz/Pain) darauf zeigen.`;
 
-  const quality = qualityCheck([emailHtml, linkedin, followUp1, followUp2, ...subjects]);
+  // Quality gates run on the PERSONALIZED copy only — not the fixed central
+  // template (banner/CTA/signature are governed centrally, not per account).
+  // The email body drives the conciseness + repetition checks (<30s read).
+  const bodyText = [greeting, intro, painLine, benefit].join(" ");
+  const quality = qualityCheck([greeting, intro, painLine, benefit, linkedin, followUp1, followUp2, ...subjects], bodyText);
   return {
     accountId: a.id, company: a.company, industry: a.industry,
     ...(a.contactTitle ? { contactTitle: a.contactTitle } : {}),
     ...(a.email ? { email: a.email } : {}),
-    campaign, subjects, previewText, emailHtml, linkedin, followUp1, followUp2, summary, banner, quality,
+    campaign, subjects, previewText, emailHtml, linkedin, followUp1, followUp2, summary, banner,
+    ctaText: cta.text, ctaUrl: cta.url, quality,
+    personalizationScore: personalizationScore(a, intro), confidenceScore: confidenceScore(a),
     fitScore: a.fitScore, revenueScore: a.revenueScore, buyingIntent: a.buyingIntent, priority: a.priority,
     createdAt: clock(),
   };
@@ -291,7 +392,7 @@ export class RevenueEngine {
       campaignsPrepared: new Set(ready.map((o) => o.campaign)).size,
       readyToSend: ready.length,
       businessImpactScore: score,
-      bannerGaps: bannerGaps(ready.map((o) => o.industry)),
+      bannerGaps: [], // one central marketing banner is used for every email
       topOpportunities: ready.slice(0, 5).map((o) => ({ company: o.company, industry: o.industry, campaign: o.campaign, revenueScore: o.revenueScore, fitScore: o.fitScore })),
     };
   }

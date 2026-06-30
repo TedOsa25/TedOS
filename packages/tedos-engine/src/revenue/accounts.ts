@@ -29,6 +29,8 @@ export interface RawLead {
   website?: string;
   linkedin?: string;
   why?: string;
+  customers?: string[] | string;
+  services?: string[] | string;
   supplier_pressure?: string;
   heycarbo_pain_points?: string[] | string;
   certifications?: string[] | string;
@@ -43,6 +45,8 @@ export interface Account {
   id: string;
   company: string;
   industry: string;
+  segment?: string;
+  products?: string;
   website?: string;
   contactTitle?: string;
   email?: string;
@@ -50,6 +54,7 @@ export interface Account {
   revenueText?: string;
   painPoints: string[];
   certifications: string[];
+  customers: string[];
   pcfRelevance?: string;
   catenaXRelevance?: string;
   csrdRelevance?: string;
@@ -113,6 +118,9 @@ export function normalize(l: RawLead, index: number): Account {
     id: l.id ?? `acct-${index + 1}`,
     company: (l.name ?? "").trim() || `Account ${index + 1}`,
     industry: (l.industry || l.segment || l.product_category || "Unbekannt").trim(),
+    ...(l.segment ? { segment: l.segment } : {}),
+    ...(l.product_category ? { products: l.product_category } : {}),
+    customers: asArray(l.customers),
     ...(l.website ? { website: l.website } : {}),
     ...(l.buyer_titles?.[0] || l.director ? { contactTitle: l.buyer_titles?.[0] ?? l.director } : {}),
     ...(l.email ? { email: l.email } : {}),

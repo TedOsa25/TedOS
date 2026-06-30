@@ -57,9 +57,12 @@ describe("revenue: content generation + quality gates", () => {
     const o = buildOpportunity(a, clock);
     assert.equal(o.subjects.length, 3);
     assert.ok(o.previewText.length > 0);
-    assert.ok(o.emailHtml.includes("14 Tage kostenlos testen"));
-    assert.ok(o.emailHtml.includes(o.banner.url), "references a real banner asset");
-    assert.ok(o.emailHtml.includes("GRAFE GmbH"), "uses the real company name");
+    assert.ok(o.emailHtml.includes("Guten Tag,"), "modern greeting");
+    assert.ok(!/Sehr geehrte/.test(o.emailHtml), "no classical salutation");
+    assert.ok(o.emailHtml.includes(o.banner.url), "central marketing banner referenced");
+    assert.ok(o.emailHtml.includes("calendly.com/ted-heycarbo/30min"), "Calendly link present");
+    assert.ok(o.emailHtml.includes("#0d9488"), "HeyCarbo turquoise CTA");
+    assert.ok(o.emailHtml.includes("GRAFE GmbH"), "company-specific intro uses the real name");
     assert.ok(o.followUp1.length > 0 && o.followUp2.length > 0);
     assert.ok(o.summary.includes("HeyCarbo"));
     assert.equal(o.quality.passed, true);
