@@ -24,7 +24,7 @@ function only(p: Partial<Record<GrowthKind, number>>): Record<GrowthKind, number
 function setup(targets?: Partial<Record<GrowthKind, number>>, perTickCap = 100) {
   const storage = new InMemoryStorage();
   const queue = new DistributionQueue(storage, undefined, clock);
-  const engine = new GrowthEngine(queue, storage, { clock, targets, perTickCap });
+  const engine = new GrowthEngine(queue, storage, { clock, perTickCap, ...(targets ? { targets } : {}) });
   return { storage, queue, engine };
 }
 

@@ -44,6 +44,7 @@ import { PublisherRegistry } from "./distribution-connectors.js";
 import { DistributionAnalyticsStore, DistributionLearningStore, buildDistributionSection, renderDistributionSection } from "./distribution-analytics.js";
 import { DistributionEngine } from "./distribution-engine.js";
 import { GrowthEngine, type GrowthTickResult } from "./growth-engine.js";
+import { RevenueEngine, type RevenueCenter } from "./revenue/revenue-engine.js";
 
 /** Default loop interval: 15 minutes. */
 const DEFAULT_INTERVAL_MS = 900_000;
@@ -191,7 +192,9 @@ export interface TickSummary {
   learningsTotal: number;
   /** Approved distribution jobs published/sent this tick (skipped offline). */
   distributed: number;
-  /** Growth Engine result — the business deliverables prepared this tick. */
+  /** Revenue Center — real-account outreach prepared this tick (the primary output). */
+  revenue: RevenueCenter;
+  /** Growth Engine result — the non-account marketing assets prepared this tick. */
   growth: GrowthTickResult;
   /** Connectors selected for the executed tasks this tick, by connector name. */
   connectors: Record<string, number>;
@@ -216,8 +219,10 @@ export interface LoopDeps {
   /** Distribution Engine + its shared queue (credential-gated; inert offline). */
   distributionQueue: DistributionQueue;
   distribution: DistributionEngine;
-  /** Growth Engine — generates business deliverables each tick (the productive core). */
+  /** Growth Engine — generates non-account marketing assets each tick. */
   growth: GrowthEngine;
+  /** Revenue Engine — turns REAL accounts into ready-to-approve outreach (the core). */
+  revenue: RevenueEngine;
   subagents: SubAgentRouter;
   connectors: ConnectorRegistry;
   loadProviders: () => Promise<ResearchProvider[]>;
@@ -302,11 +307,16 @@ export class TedosLoop {
       ? Math.round((assessments.reduce((s, a) => s + a.attribution.roi, 0) / assessments.length) * 100) / 100
       : 0;
 
-    // Growth Engine: the productive core. Each tick generates the day's business
-    // deliverables (sales emails, follow-ups, comparison/landing pages, supplier
-    // campaigns, LinkedIn, blog, SEO, content improvements), Brand-Guardian-checked,
-    // and enqueues them credential-gated into the shared Distribution Queue as
-    // pending-approval. Daily quotas mean a day's work is produced once, then idle.
+    // Revenue Engine: the productive core. Each tick takes the next highest-priority
+    // REAL accounts and prepares personalized outreach (HTML email, 3 subjects,
+    // preview, LinkedIn, 2 follow-ups, account summary) — quality-gated and queued
+    // credential-gated as pending-approval. Nothing is sent. Daily quota (40).
+    const revenue = this.deps.revenue.run();
+
+    // Growth Engine: the day's non-account marketing assets (comparison/landing
+    // pages, supplier campaigns, LinkedIn thought-leadership, blog, SEO, content
+    // improvements). Account outreach (sales emails/follow-ups) is owned by the
+    // Revenue Engine above, so those growth kinds are disabled. Same approval queue.
     const growth = this.deps.growth.run();
 
     // Distribution (Autonomous Distribution Engine): publish every APPROVED job
@@ -348,6 +358,7 @@ export class TedosLoop {
       avgRoi,
       learningsTotal: this.deps.learnings.all().length,
       distributed: dist.published + dist.sent,
+      revenue,
       growth,
       connectors,
       roles,
@@ -399,20 +410,21 @@ export class TedosLoop {
       Object.entries(r)
         .map(([k, v]) => `${k}×${v}`)
         .join(", ") || "none";
+    const r = s.revenue;
     const g = s.growth;
-    // Business-first: a tick's success is its contribution to pipeline & revenue.
-    const business =
-      `[tick ${s.tick}] BUSINESS IMPACT SCORE ${g.businessImpactScore} | ` +
-      `revenue opportunities: ${g.revenueOpportunities} | new campaigns: ${g.newCampaigns} | ` +
-      `sales emails prepared: ${g.salesEmails} | marketing assets: ${g.marketingAssets} | ` +
-      `website improvements: ${g.websiteImprovements} | SEO opportunities: ${g.seoOpportunities} | ` +
-      `content opportunities: ${g.contentOpportunities} | supplier opportunities: ${g.supplierOpportunities} | ` +
-      `queued for approval: ${g.queuedForApproval} (credential-gated, not sent)`;
+    // Revenue-first: a tick's success is its contribution to pipeline & revenue.
+    const revenueLine = r.dataAvailable
+      ? `[tick ${s.tick}] REVENUE CENTER · score ${r.businessImpactScore} | accounts analyzed: ${r.accountsAnalyzed}/${r.accountsPrioritized} | ` +
+        `emails: ${r.emailsCreated} | follow-ups: ${r.followUpsCreated} | linkedin: ${r.linkedinCreated} | ` +
+        `banners: ${r.bannersSelected} | campaigns: ${r.campaignsPrepared} | READY TO SEND: ${r.readyToSend} (credential-gated, not sent)`
+      : `[tick ${s.tick}] REVENUE CENTER · NO LIVE ACCOUNTS — ${r.missingData}`;
+    const marketingLine =
+      `        marketing assets: +${g.marketingAssets} · website ${g.websiteImprovements} · SEO ${g.seoOpportunities} · ` +
+      `content ${g.contentOpportunities} · supplier ${g.supplierOpportunities} · queued ${g.queuedForApproval}`;
     const technical =
       `        ops: research ${s.submitted} · runtime ${s.processed} (done ${s.succeeded}, blocked ${s.blocked}) · ` +
-      `learning +${s.outcomesRecorded} · outcome avgROI ${s.avgRoi} · distribution ${s.distributed} sent · ` +
-      `impact ${s.impactEngine}`;
-    return `${business}\n${technical}`;
+      `learning +${s.outcomesRecorded} · outcome avgROI ${s.avgRoi} · distribution ${s.distributed} sent · impact ${s.impactEngine}`;
+    return `${revenueLine}\n${marketingLine}\n${technical}`;
   }
 }
 
@@ -455,8 +467,15 @@ export function createTedosLoop(options: TedosLoopOptions = {}): TedosLoop {
     distributionAnalytics,
     { learnings: distributionLearnings },
   );
-  // Growth Engine: prepares the day's business deliverables into the shared queue.
-  const growth = new GrowthEngine(distributionQueue, storage);
+  // Revenue Engine: real-account outreach (the core). Reads the real Sales CRM
+  // accounts (REVENUE_ACCOUNTS_PATH or the default Sales/crm-heycarbo/leads.js);
+  // [] + a missing-data note when absent — never fabricated.
+  const revenue = new RevenueEngine(distributionQueue, storage);
+  // Growth Engine: non-account marketing assets only. Account outreach (sales
+  // emails + follow-ups) is owned by the Revenue Engine, so disable those kinds.
+  const growth = new GrowthEngine(distributionQueue, storage, {
+    targets: { "sales-email": 0, "follow-up": 0 },
+  });
   // Resolve the project once: explicit option > CLI/env > TedOS default.
   const project = selectProject(options.project ?? readProjectSelection());
   return new TedosLoop({
@@ -482,6 +501,7 @@ export function createTedosLoop(options: TedosLoopOptions = {}): TedosLoop {
     distributionQueue,
     distribution,
     growth,
+    revenue,
     subagents: new SubAgentRouter(),
     connectors: new ConnectorRegistry(),
     loadProviders: options.loadProviders ?? loadResearchProviders,
