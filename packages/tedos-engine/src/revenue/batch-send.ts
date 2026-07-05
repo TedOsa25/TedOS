@@ -127,10 +127,33 @@ function saveLeadStatus(storage: Storage, map: Record<string, LeadRecord>): void
   storage.save(LEAD_STATUS_KEY, map);
 }
 
-/** Mark accounts as "approved" (setup/operator helper; never auto-called). */
+/** Mark accounts as "approved" (Approve in the Revenue Center). Unsubscribed leads are never re-approved. */
 export function approveLeads(storage: Storage, ids: string[]): void {
   const map = loadLeadStatus(storage);
-  for (const id of ids) map[id] = { ...(map[id] ?? {}), status: "approved" };
+  for (const id of ids) {
+    if (map[id]?.status === "unsubscribed") continue; // opt-out wins
+    map[id] = { ...(map[id] ?? {}), status: "approved" };
+  }
+  saveLeadStatus(storage, map);
+}
+
+/** Reject leads (✗ in the Revenue Center) — status "lost", excluded from sending. */
+export function rejectLeads(storage: Storage, ids: string[]): void {
+  const map = loadLeadStatus(storage);
+  for (const id of ids) {
+    if (map[id]?.status === "unsubscribed") continue;
+    map[id] = { ...(map[id] ?? {}), status: "lost" };
+  }
+  saveLeadStatus(storage, map);
+}
+
+/** Skip leads (☐ in the Revenue Center) — status "pending", revisit later. */
+export function skipLeads(storage: Storage, ids: string[]): void {
+  const map = loadLeadStatus(storage);
+  for (const id of ids) {
+    if (map[id]?.status === "unsubscribed") continue;
+    map[id] = { ...(map[id] ?? {}), status: "pending" };
+  }
   saveLeadStatus(storage, map);
 }
 
@@ -189,6 +212,48 @@ export function processReply(
   map[accountId] = { ...map[accountId], status: "replied" } as LeadRecord;
   saveLeadStatus(storage, map);
   return "replied";
+}
+
+/** One row for the Revenue Center approval view. */
+export interface LeadReviewRow {
+  accountId: string;
+  company: string;
+  contact?: string;
+  email?: string;
+  industry: string;
+  priority: number;
+  subject: string;
+  emailHtml: string;
+  status: LeadStatus;
+}
+
+/**
+ * Build the approval review list: the top `limit` prioritized accounts with
+ * their generated subject + email preview and current lifecycle status. Read-
+ * only — never sends, never changes status.
+ */
+export function leadReviewList(
+  storage: Storage,
+  opts: { accounts?: Account[]; accountsPath?: string; limit?: number; variant?: Variant; clock?: () => string } = {},
+): LeadReviewRow[] {
+  const clock = opts.clock ?? (() => new Date().toISOString());
+  const variant = opts.variant ?? DEFAULT_VARIANT;
+  const statusMap = loadLeadStatus(storage);
+  const accounts = prioritize(opts.accounts ?? loadAccounts(opts.accountsPath)).slice(0, opts.limit ?? 50);
+  return accounts.map((a) => {
+    const opp = buildOpportunity(a, clock, variant);
+    return {
+      accountId: a.id,
+      company: a.company,
+      ...(a.contactTitle ? { contact: a.contactTitle } : {}),
+      ...(a.email ? { email: a.email } : {}),
+      industry: a.industry,
+      priority: a.priority,
+      subject: opp.subjects[0] ?? `${a.company}: CO₂-Daten`,
+      emailHtml: opp.emailHtml,
+      status: statusMap[a.id]?.status ?? "active",
+    };
+  });
 }
 
 export interface BatchSendOptions {
