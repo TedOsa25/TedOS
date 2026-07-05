@@ -17,7 +17,7 @@
 import { InMemoryStorage } from "./../storage.js";
 import { normalize, type Account } from "./accounts.js";
 import { getProvider, selectedProviderName } from "./sending.js";
-import { sendApprovedBatch, approveLeads, formatBatchReport } from "./batch-send.js";
+import { sendApprovedBatch, approveLeads, formatBatchReport, BCC_FIRST_BATCH } from "./batch-send.js";
 
 /** The ONLY recipient a --real run may target — the operator's own inbox. */
 const TEST_RECIPIENT = process.env.REVENUE_TEST_RECIPIENT ?? "tedosammor@googlemail.com";
@@ -46,21 +46,42 @@ async function main(): Promise<void> {
     return;
   }
 
-  // REAL — exactly one lead, recipient hard-forced to the operator inbox.
-  const lead = testLead(TEST_RECIPIENT);
+  // REAL — Stage 3. Hard guards enforce "exactly one synthetic mail, no CRM,
+  // no foreign recipient" by construction; abort on any violation.
+  const abort = (msg: string): never => { console.error(`\n⛔ ABBRUCH: ${msg}\n(Es wurde NICHTS gesendet.)`); process.exit(1); };
+
+  // Guard 1: the recipient must be exactly ONE valid address (no list, no CRM).
+  if (!/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(TEST_RECIPIENT)) {
+    abort(`Empfänger "${TEST_RECIPIENT}" ist keine einzelne gültige Adresse — Liste/Fremdempfänger abgelehnt.`);
+  }
+  // Guard 2: no env can inject a different/extra recipient.
+  for (const k of ["MAIL_TO", "RECIPIENT", "TO", "SMTP_TO", "REVENUE_TEST_RECIPIENTS"]) {
+    if (process.env[k]) abort(`Unerlaubte Empfänger-Env "${k}" gesetzt — nur REVENUE_TEST_RECIPIENT (eine Adresse) ist erlaubt.`);
+  }
+
+  const lead = testLead(TEST_RECIPIENT); // synthetic — NOT from the CRM
+  // Guard 3: the built lead must carry exactly the allowed recipient.
+  if (lead.email !== TEST_RECIPIENT) abort(`Lead-Empfänger weicht ab: "${lead.email}".`);
+
   approveLeads(storage, [lead.id]);
-  console.log(`MODE: REAL (ein Testlead) → ${TEST_RECIPIENT}`);
-  console.log(`Provider: ${selectedProviderName()} · Master-Switch: ${process.env.REVENUE_SEND_ENABLED === "1" ? "ARMED" : "OFF (→ skipped)"}\n`);
+  console.log(`MODE: REAL — Stufe 3 (genau EIN synthetischer Testlead) → ${TEST_RECIPIENT}`);
+  console.log(`Provider: ${selectedProviderName()} · BCC: ${BCC_FIRST_BATCH} · Master-Switch: ${process.env.REVENUE_SEND_ENABLED === "1" ? "ARMED" : "OFF (→ skipped)"}\n`);
+
   const report = await sendApprovedBatch({
     storage,
-    accounts: [lead],
+    accounts: [lead], // injected → loadAccounts()/CRM is never touched
     batchSize: 1,
-    batchNumber: 1, // exercises the batch-1 BCC
+    batchNumber: 1, // batch-1 → BCC ted@heycarbo.com active
     provider: getProvider(),
     clock,
   });
+
+  // Guard 4: never more than one attempt, never a foreign recipient in results.
+  if (report.attempted > 1) abort(`Mehr als eine Mail versucht (${report.attempted}).`);
+  if (report.results.some((r) => r.email !== TEST_RECIPIENT)) abort("Ergebnis enthält einen Fremdempfänger.");
+
   console.log(formatBatchReport(report));
-  if (report.sent > 0) console.log(`\n✅ Gesendet. Postfach ${TEST_RECIPIENT} prüfen (BCC ging an ${report.bccAddress}).`);
+  if (report.sent > 0) console.log(`\n✅ Gesendet. Postfach ${TEST_RECIPIENT} prüfen (BCC ging blind an ${report.bccAddress}).`);
   else console.log("\nℹ Nichts gesendet (Master-Switch aus oder Provider nicht konfiguriert) — nur Trockenlauf-Ergebnis.");
 }
 
