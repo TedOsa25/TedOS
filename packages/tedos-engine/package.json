@@ -51,7 +51,8 @@
     "revenue": "tsx src/revenue-demo.ts",
     "test:revenue": "tsx src/revenue/revenue-engine.test.ts",
     "test:sending": "tsx src/revenue/sending.test.ts",
-    "revenue:export": "tsx src/revenue-export.ts"
+    "revenue:export": "tsx src/revenue-export.ts",
+    "send:test": "tsx src/revenue/send-test.ts"
   },
   "keywords": [],
   "author": "",
@@ -60,7 +61,11 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@types/node": "^26.0.0",
+    "nodemailer": "^9.0.3",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.1"
   }
 }
