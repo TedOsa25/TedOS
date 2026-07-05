@@ -47,7 +47,7 @@
     "test:distribution-engine": "tsx src/distribution-engine.test.ts",
     "test:distribution-analytics": "tsx src/distribution-analytics.test.ts",
     "test:growth": "tsx src/growth-engine.test.ts",
-    "test": "npm run test:research && npm run test:loop && npm run test:skill && npm run test:connector && npm run test:reasoner && npm run test:learning && npm run test:feedback && npm run test:routing && npm run test:connectors && npm run test:projects && npm run test:watchdogs && npm run test:prioritization && npm run test:approvals && npm run test:brand && npm run test:evidence && npm run test:business && npm run test:attribution && npm run test:outcome && npm run test:dashboard && npm run test:outcome-prioritization && npm run test:distribution-queue && npm run test:distribution-engine && npm run test:distribution-analytics && npm run test:growth && npm run test:revenue && npm run test:sending && npm run test:batch",
+    "test": "npm run test:research && npm run test:loop && npm run test:skill && npm run test:connector && npm run test:reasoner && npm run test:learning && npm run test:feedback && npm run test:routing && npm run test:connectors && npm run test:projects && npm run test:watchdogs && npm run test:prioritization && npm run test:approvals && npm run test:brand && npm run test:evidence && npm run test:business && npm run test:attribution && npm run test:outcome && npm run test:dashboard && npm run test:outcome-prioritization && npm run test:distribution-queue && npm run test:distribution-engine && npm run test:distribution-analytics && npm run test:growth && npm run test:revenue && npm run test:sending && npm run test:batch && npm run test:footer && npm run test:unsubscribe",
     "revenue": "tsx src/revenue-demo.ts",
     "test:revenue": "tsx src/revenue/revenue-engine.test.ts",
     "test:sending": "tsx src/revenue/sending.test.ts",
@@ -55,7 +55,9 @@
     "send:test": "tsx src/revenue/send-test.ts",
     "batch:dry": "tsx src/revenue/batch-send-demo.ts",
     "batch:test": "tsx src/revenue/batch-send-demo.ts --real",
-    "test:batch": "tsx src/revenue/batch-send.test.ts"
+    "test:batch": "tsx src/revenue/batch-send.test.ts",
+    "test:footer": "tsx src/revenue/email-footer.test.ts",
+    "test:unsubscribe": "tsx src/revenue/unsubscribe.test.ts"
   },
   "keywords": [],
   "author": "",

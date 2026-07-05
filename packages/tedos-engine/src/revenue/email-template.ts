@@ -21,6 +21,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { BANNER_DATA_URI, SIGNATURE_ICON_DATA } from "./email-assets-embedded.js";
 
 const WEBSITE_URL = process.env.WEBSITE_URL ?? "https://heycarbo.com";
@@ -68,6 +69,11 @@ export const EMAIL_ASSETS = {
   calendlyUrl: process.env.CALENDLY_URL ?? process.env.REVENUE_CALENDLY_URL ?? "https://calendly.com/ted-heycarbo/30min",
   /** 14-day trial landing — the PRIMARY CTA button target. */
   trialUrl: process.env.REVENUE_TRIAL_URL ?? `${WEBSITE_URL}/trial`,
+  /** Legal footer links — dynamic via config (never a relative path). */
+  imprintUrl: process.env.REVENUE_IMPRINT_URL ?? `${WEBSITE_URL}/impressum`,
+  privacyUrl: process.env.REVENUE_PRIVACY_URL ?? `${WEBSITE_URL}/datenschutz`,
+  /** Base for the per-lead unsubscribe link: `${base}/${token}`. */
+  unsubscribeBase: process.env.REVENUE_UNSUBSCRIBE_BASE ?? `${WEBSITE_URL}/unsubscribe`,
 } as const;
 
 /** The central banner as a referenced asset (for the Revenue Center preview). */
@@ -171,6 +177,65 @@ export interface EmailParts {
   closing: string; // short, low-pressure ask (after the CTA)
   ctaText: string; // primary button label
   ctaUrl: string; // primary button target (trial)
+  /** Per-lead unsubscribe link for the legal footer (falls back to the generic base). */
+  unsubscribeUrl?: string;
+  /** Override the footer imprint link (defaults to EMAIL_ASSETS.imprintUrl). */
+  imprintUrl?: string;
+  /** Override the footer privacy link (defaults to EMAIL_ASSETS.privacyUrl). */
+  privacyUrl?: string;
+}
+
+/** Stable, per-lead unsubscribe token (deterministic — same lead → same token). */
+export function unsubscribeToken(accountId: string): string {
+  const secret = process.env.REVENUE_UNSUBSCRIBE_SECRET ?? "heycarbo-unsub";
+  return createHash("sha256").update(`${accountId}:${secret}`).digest("hex").slice(0, 32);
+}
+
+/** The per-lead unsubscribe URL: `${base}/${token}` (absolute, never relative). */
+export function unsubscribeUrl(accountId: string): string {
+  return `${EMAIL_ASSETS.unsubscribeBase.replace(/\/$/, "")}/${unsubscribeToken(accountId)}`;
+}
+
+/** Footer font: Inter with an Arial fallback (per legal-footer spec). */
+const FOOTER_FONT = "Inter, Arial, sans-serif";
+/** Muted footer text colour + hairline, per spec. */
+const FOOTER_TEXT = "#6B7280";
+const FOOTER_LINE = "#E5E7EB";
+
+/**
+ * Legal footer — appended AFTER the signature, does not touch the layout above.
+ * Plain, HubSpot/Stripe-style: hairline divider, muted 12px text, generous
+ * whitespace, no boxes, no icons, no bright colours. Links are dynamic (config).
+ */
+export function legalFooter(parts: { imprintUrl?: string; privacyUrl?: string; unsubscribeUrl?: string } = {}): string {
+  const imprint = parts.imprintUrl ?? EMAIL_ASSETS.imprintUrl;
+  const privacy = parts.privacyUrl ?? EMAIL_ASSETS.privacyUrl;
+  const unsubscribe = parts.unsubscribeUrl ?? EMAIL_ASSETS.unsubscribeBase;
+  const base = `font-family:${FOOTER_FONT};font-size:12px;line-height:18px;color:${FOOTER_TEXT};`;
+  const link = `color:${FOOTER_TEXT};text-decoration:underline;`;
+  return (
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
+    `<td style="padding:28px 0 0 0;">` +
+    `<div style="border-top:1px solid ${FOOTER_LINE};height:1px;line-height:1px;font-size:1px;">&nbsp;</div>` +
+    `<div style="padding-top:20px;${base}">` +
+    `<p style="margin:0 0 12px 0;padding:0;${base}">` +
+    `Sie erhalten diese E-Mail, weil wir davon ausgehen, dass unsere Lösung für Ihr Unternehmen im Zusammenhang mit ` +
+    `CO₂-Bilanzierung, Product Carbon Footprints oder Lieferkettenanforderungen relevant sein könnte.` +
+    `</p>` +
+    `<p style="margin:0 0 16px 0;padding:0;${base}">` +
+    `Falls Sie künftig keine Informationen mehr von HeyCarbo erhalten möchten, können Sie sich jederzeit ` +
+    `<a href="${unsubscribe}" style="${link}">mit einem Klick abmelden</a> oder einfach auf diese E-Mail mit „Abmelden" antworten.` +
+    `</p>` +
+    `<p style="margin:0;padding:0;${base}">` +
+    `<a href="${imprint}" style="${link}">Impressum</a>` +
+    `&nbsp;&nbsp;·&nbsp;&nbsp;` +
+    `<a href="${privacy}" style="${link}">Datenschutzerklärung</a>` +
+    `&nbsp;&nbsp;·&nbsp;&nbsp;` +
+    `<a href="${unsubscribe}" style="${link}">Abmelden</a>` +
+    `</p>` +
+    `</div>` +
+    `</td></tr></table>`
+  );
 }
 
 /** Text of the secondary demo link (shared by every email). */
@@ -281,6 +346,7 @@ export function renderEmail(p: EmailParts): string {
     secondaryLink(a.calendlyUrl) +
     bannerBlock() +
     signatureBlock() +
+    legalFooter({ ...(p.imprintUrl ? { imprintUrl: p.imprintUrl } : {}), ...(p.privacyUrl ? { privacyUrl: p.privacyUrl } : {}), ...(p.unsubscribeUrl ? { unsubscribeUrl: p.unsubscribeUrl } : {}) }) +
     `</td></tr></table>` +
     `</td></tr></table>` +
     `</body></html>`

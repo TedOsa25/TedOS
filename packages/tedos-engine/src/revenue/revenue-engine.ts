@@ -13,7 +13,7 @@ import type { Storage } from "./../storage.js";
 import { checkContent } from "./../brand-guardian.js";
 import { DistributionQueue, type DistributionJobInput } from "./../distribution-queue.js";
 import { type Account, loadAccounts, prioritize } from "./accounts.js";
-import { EMAIL_ASSETS, EMAIL_BANNER, renderEmail } from "./email-template.js";
+import { EMAIL_ASSETS, EMAIL_BANNER, renderEmail, unsubscribeToken, unsubscribeUrl } from "./email-template.js";
 import { VARIANTS, VARIANT_LABEL, buildCopy, DEFAULT_VARIANT, germanizePain, namedOems, type Variant } from "./email-copy.js";
 
 /** A referenced banner asset (the central email banner). */
@@ -145,6 +145,9 @@ export interface RevenueOpportunity {
   buyingIntent: number;
   priority: number;
   createdAt: string;
+  /** Per-lead opt-out — token + absolute URL embedded in the legal footer. */
+  unsubscribeToken: string;
+  unsubscribeUrl: string;
 }
 
 /** How much real intelligence we hold on the account (data completeness, 0–100). */
@@ -186,10 +189,12 @@ export function buildOpportunity(a: Account, clock: () => string, variant: Varia
   const cta = PRIMARY_CTA;
 
   // Central layout appended automatically:
-  //   text · banner · "14 Tage kostenlos testen" button · demo link · closing · signature.
+  //   text · banner · "14 Tage kostenlos testen" button · demo link · signature · legal footer.
+  // The legal footer carries this lead's own unsubscribe link.
+  const unsubUrl = unsubscribeUrl(a.id);
   const emailHtml = renderEmail({
     greeting: copy.greeting, intro: copy.intro, value: copy.value, closing: copy.closing,
-    ctaText: cta.text, ctaUrl: cta.url,
+    ctaText: cta.text, ctaUrl: cta.url, unsubscribeUrl: unsubUrl,
   });
 
   const subjects = [
@@ -219,6 +224,7 @@ export function buildOpportunity(a: Account, clock: () => string, variant: Varia
     personalizationScore: personalizationScore(a, copy.intro), confidenceScore: confidenceScore(a),
     fitScore: a.fitScore, revenueScore: a.revenueScore, buyingIntent: a.buyingIntent, priority: a.priority,
     createdAt: clock(),
+    unsubscribeToken: unsubscribeToken(a.id), unsubscribeUrl: unsubUrl,
   };
 }
 

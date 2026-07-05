@@ -22,7 +22,7 @@
 import type { Storage } from "./../storage.js";
 import { type Account, loadAccounts, prioritize } from "./accounts.js";
 import { buildOpportunity } from "./revenue-engine.js";
-import { EMAIL_ASSETS } from "./email-template.js";
+import { unsubscribeToken, unsubscribeUrl } from "./email-template.js";
 import { type Variant, DEFAULT_VARIANT } from "./email-copy.js";
 import {
   dispatch, getProvider, isSendArmed, selectedProviderName,
@@ -42,7 +42,15 @@ const SENDER = {
   name: process.env.REVENUE_FROM_NAME ?? "Ted Osammor",
 } as const;
 
-export type LeadStatus = "pending" | "approved" | "sent";
+/** Full lead lifecycle shown in the Revenue Center. */
+export type LeadStatus =
+  | "active" | "pending" | "approved" | "sent" | "replied"
+  | "bounced" | "demo-booked" | "won" | "lost" | "unsubscribed";
+
+/** All lifecycle statuses, in display order (for the Revenue Center). */
+export const LEAD_LIFECYCLE: LeadStatus[] = [
+  "active", "pending", "approved", "sent", "replied", "bounced", "demo-booked", "won", "lost", "unsubscribed",
+];
 
 /** Persisted per-lead record (keyed by account id). */
 export interface LeadRecord {
@@ -52,7 +60,17 @@ export interface LeadRecord {
   messageId?: string;
   smtpStatus?: SendStatus;
   error?: string;
+  /** Campaign/industry/variant captured at send time — for opt-out reporting. */
+  campaign?: string;
+  industry?: string;
+  variant?: Variant;
+  /** Opt-out bookkeeping. */
+  unsubscribed_at?: string;
+  unsubscribe_reason?: string;
 }
+
+/** Reply phrases that trigger an automatic opt-out (case-insensitive, whole word). */
+export const UNSUBSCRIBE_REPLY_PHRASES = ["abmelden", "unsubscribe", "stop", "keine e-mails", "keine emails", "remove"];
 
 /** One line of the send report. */
 export interface BatchResultLine {
@@ -114,6 +132,63 @@ export function approveLeads(storage: Storage, ids: string[]): void {
   const map = loadLeadStatus(storage);
   for (const id of ids) map[id] = { ...(map[id] ?? {}), status: "approved" };
   saveLeadStatus(storage, map);
+}
+
+// Per-lead unsubscribe token/URL live in email-template.ts (single source, no
+// import cycle); re-exported here for the opt-out API surface.
+export { unsubscribeToken, unsubscribeUrl };
+
+/** True when this lead has opted out — sending to it is blocked. */
+export function isUnsubscribed(storage: Storage, accountId: string): boolean {
+  return loadLeadStatus(storage)[accountId]?.status === "unsubscribed";
+}
+
+/**
+ * Opt out a lead (by account id OR unsubscribe token). Sets status
+ * "unsubscribed" + timestamp + reason, blocking all future campaigns. Idempotent.
+ * Returns the resolved account id, or null when the token/id is unknown.
+ */
+export function unsubscribeLead(
+  storage: Storage,
+  idOrToken: string,
+  reason = "Opt-out",
+  clock: () => string = () => new Date().toISOString(),
+): string | null {
+  const map = loadLeadStatus(storage);
+  // Direct id, else resolve a token against known leads.
+  let id: string | null = map[idOrToken] ? idOrToken : null;
+  if (!id) id = Object.keys(map).find((k) => unsubscribeToken(k) === idOrToken) ?? null;
+  if (!id) return null;
+  map[id] = { ...(map[id] ?? { status: "active" }), status: "unsubscribed", unsubscribed_at: clock(), unsubscribe_reason: reason };
+  saveLeadStatus(storage, map);
+  return id;
+}
+
+/** True when a reply body signals an opt-out ("Abmelden" / "Unsubscribe" / "Stop" / …). */
+export function replyRequestsUnsubscribe(replyText: string): boolean {
+  const t = replyText.toLowerCase();
+  return UNSUBSCRIBE_REPLY_PHRASES.some((p) => new RegExp(`(^|\\b|\\s)${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\b|\\s|$)`, "i").test(t));
+}
+
+/**
+ * Process an inbound reply for a lead: opt out when the body asks to unsubscribe,
+ * otherwise mark the lead "replied". Returns the new status (or null if unknown lead).
+ */
+export function processReply(
+  storage: Storage,
+  accountId: string,
+  replyText: string,
+  clock: () => string = () => new Date().toISOString(),
+): LeadStatus | null {
+  const map = loadLeadStatus(storage);
+  if (!map[accountId]) return null;
+  if (replyRequestsUnsubscribe(replyText)) {
+    unsubscribeLead(storage, accountId, "Opt-out (Reply)", clock);
+    return "unsubscribed";
+  }
+  map[accountId] = { ...map[accountId], status: "replied" } as LeadRecord;
+  saveLeadStatus(storage, map);
+  return "replied";
 }
 
 export interface BatchSendOptions {
@@ -179,8 +254,12 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
   if (dryRun) notes.push("dryRun — nothing is dispatched to a real provider");
 
   // Eligible = approved leads, in priority order, matched to a loaded account.
+  // Opt-out is enforced here: an unsubscribed lead can never be "approved", and
+  // is additionally filtered out as defence-in-depth.
   const accounts = prioritize(opts.accounts ?? loadAccounts(opts.accountsPath));
-  const approved = accounts.filter((a) => statusMap[a.id]?.status === "approved");
+  const approved = accounts.filter((a) => statusMap[a.id]?.status === "approved" && statusMap[a.id]?.status !== undefined);
+  const blockedUnsub = accounts.filter((a) => statusMap[a.id]?.status === "unsubscribed").length;
+  if (blockedUnsub) notes.push(`${blockedUnsub} unsubscribed lead(s) blocked (opt-out)`);
   if (accounts.length === 0) notes.push("no accounts loaded (real CRM file missing?) — nothing to send");
 
   const batch = approved.slice(0, effectiveSize);
@@ -190,6 +269,8 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
   let bccCopies = 0;
 
   for (const account of batch) {
+    // Defence-in-depth: never dispatch to an opted-out lead, even if it slipped in.
+    if (statusMap[account.id]?.status === "unsubscribed") continue;
     const opp = buildOpportunity(account, clock, variant);
     const now = clock();
     const email: OutboundEmail = {
@@ -228,11 +309,15 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
     results.push(line);
 
     // Persist the outcome and flip to "sent" only on a real successful send.
+    // Campaign/industry/variant are captured for opt-out reporting.
     const rec: LeadRecord = {
       status: result.status === "sent" ? "sent" : (statusMap[account.id]?.status ?? "approved"),
       sent_at: now,
       provider: result.provider,
       smtpStatus: result.status,
+      campaign: opp.campaign,
+      industry: account.industry,
+      variant,
       ...(result.messageId ? { messageId: result.messageId } : {}),
       ...(result.status === "error" && result.detail ? { error: result.detail } : {}),
     };
