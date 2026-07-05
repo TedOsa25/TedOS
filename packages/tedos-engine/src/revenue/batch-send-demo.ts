@@ -67,6 +67,30 @@ async function main(): Promise<void> {
   console.log(`MODE: REAL — Stufe 3 (genau EIN synthetischer Testlead) → ${TEST_RECIPIENT}`);
   console.log(`Provider: ${selectedProviderName()} · BCC: ${BCC_FIRST_BATCH} · Master-Switch: ${process.env.REVENUE_SEND_ENABLED === "1" ? "ARMED" : "OFF (→ skipped)"}\n`);
 
+  // Preflight: verify the SMTP connection/login BEFORE attempting to send, so an
+  // auth/port/TLS problem is reported in plain text instead of a bare "error 1".
+  if (selectedProviderName() === "smtp" && process.env.REVENUE_SEND_ENABLED === "1") {
+    const cfgMissing = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"].filter((k) => !process.env[k]);
+    if (cfgMissing.length) console.log(`⚠ SMTP-Konfig unvollständig: ${cfgMissing.join(", ")} fehlt.\n`);
+    try {
+      const mod = "nodemailer";
+      const nodemailer = (await import(mod).catch(() => null)) as any;
+      if (nodemailer) {
+        const t = nodemailer.createTransport({
+          host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT),
+          secure: process.env.SMTP_SECURE === "1",
+          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+        });
+        await t.verify();
+        console.log(`✅ SMTP-Verbindung OK (${process.env.SMTP_HOST}:${process.env.SMTP_PORT}, secure=${process.env.SMTP_SECURE === "1"}).\n`);
+        t.close();
+      }
+    } catch (e) {
+      console.log(`⛔ SMTP-Verbindung/Login FEHLGESCHLAGEN: ${(e as Error).message}`);
+      console.log("   → Prüfe: Passwort korrekt? SMTP_USER = volle Adresse? Bei 465-Problemen: SMTP_PORT=587 ohne SMTP_SECURE (STARTTLS).\n");
+    }
+  }
+
   const report = await sendApprovedBatch({
     storage,
     accounts: [lead], // injected → loadAccounts()/CRM is never touched
@@ -82,6 +106,7 @@ async function main(): Promise<void> {
 
   console.log(formatBatchReport(report));
   if (report.sent > 0) console.log(`\n✅ Gesendet. Postfach ${TEST_RECIPIENT} prüfen (BCC ging blind an ${report.bccAddress}).`);
+  else if (report.errors > 0) console.log("\n⛔ Versuch gescheitert — siehe Fehlerdetails oben (SMTP-Login/Verbindung).");
   else console.log("\nℹ Nichts gesendet (Master-Switch aus oder Provider nicht konfiguriert) — nur Trockenlauf-Ergebnis.");
 }
 

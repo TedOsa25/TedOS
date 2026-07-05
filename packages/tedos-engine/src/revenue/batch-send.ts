@@ -291,6 +291,10 @@ export function formatBatchReport(r: BatchReport): string {
   L.push(`Message-IDs          : ${r.messageIds.length ? r.messageIds.join(", ") : "—"}`);
   L.push(`Versanddauer         : ${r.durationMs} ms`);
   L.push(`Auto-Disarm          : ${r.disarmed ? "ja (REVENUE_SEND_ENABLED=0)" : "nein"}`);
+  if (r.errors > 0) {
+    L.push("Fehlerdetails        :");
+    for (const line of r.results.filter((x) => x.error)) L.push(`  • ${line.company} <${line.email ?? "?"}>: ${line.error}`);
+  }
   if (r.notes.length) L.push(`Hinweise             : ${r.notes.join(" · ")}`);
   L.push("───────────────────────────────────────────────────────────");
   return L.join("\n");
