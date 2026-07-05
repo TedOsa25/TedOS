@@ -14,6 +14,7 @@ import { checkContent } from "./../brand-guardian.js";
 import { DistributionQueue, type DistributionJobInput } from "./../distribution-queue.js";
 import { type Account, loadAccounts, prioritize } from "./accounts.js";
 import { EMAIL_ASSETS, EMAIL_BANNER, renderEmail } from "./email-template.js";
+import { VARIANTS, VARIANT_LABEL, buildCopy, DEFAULT_VARIANT, germanizePain, namedOems, type Variant } from "./email-copy.js";
 
 /** A referenced banner asset (the central email banner). */
 export interface BannerRef {
@@ -27,17 +28,6 @@ export interface BannerRef {
 export type CampaignType =
   | "supplier-management" | "scope-3" | "pcf" | "csrd"
   | "catena-x" | "esg" | "supplier-data" | "document-management";
-
-const CAMPAIGN_VALUE: Record<CampaignType, string> = {
-  "supplier-management": "Lieferanten-CO₂-Daten zentral erfassen und Datenlücken in der Lieferkette schließen",
-  "scope-3": "Scope-3-Hotspots in Minuten sichtbar machen statt wochenlanger Excel-Arbeit",
-  "pcf": "auditierbare Product Carbon Footprints (ISO 14067) ohne Beraterheer erstellen",
-  "csrd": "CSRD-relevante Kennzahlen konsolidiert und prüfungssicher bereitstellen",
-  "catena-x": "Catena-X-/PCF-Anforderungen Ihrer OEM-Kunden erfüllen",
-  "esg": "ESG-/EcoVadis-/CDP-Anfragen schneller und konsistent beantworten",
-  "supplier-data": "Primärdaten von Lieferanten unkompliziert einsammeln",
-  "document-management": "Nachhaltigkeitsnachweise zentral und revisionssicher verwalten",
-};
 
 /** A relevance field counts as a signal when it's present and not "low/none". */
 const relevant = (v: string | undefined): boolean => !!v && /high|hoch|mittel|medium|yes|ja|true|relevant/i.test(v);
@@ -131,6 +121,8 @@ export interface RevenueOpportunity {
   industry: string;
   contactTitle?: string;
   email?: string;
+  /** Which copy tone (A–E) this email uses. */
+  variant: Variant;
   campaign: CampaignType;
   subjects: string[];
   previewText: string;
@@ -155,51 +147,6 @@ export interface RevenueOpportunity {
   createdAt: string;
 }
 
-/** Named OEMs mentioned in the real supplier-pressure signal (up to 3). */
-const OEM_RE = /\b(BMW|VW|Volkswagen|Daimler|Mercedes|Audi|Porsche|Bosch|ZF|Continental|Stellantis|Ford|Toyota|Renault|Volvo|Tesla|Magna|Valeo)\b/gi;
-function namedOems(sp: string | undefined): string | null {
-  if (!sp) return null;
-  const m = sp.match(OEM_RE);
-  if (!m) return null;
-  return Array.from(new Set(m.map((x) => (x.toUpperCase() === "VOLKSWAGEN" ? "VW" : x.toUpperCase())))).slice(0, 3).join(", ");
-}
-
-/**
- * The personalized opener — weaves 2–3 SPECIFIC real signals (OEM relationships,
- * certifications, products, customers, Catena-X/PCF/CSRD relevance) so it reads
- * like an AE wrote it after a 10-minute research. Derived ONLY from real fields;
- * no generic phrasing, no invented facts. Always follows "Guten Tag,".
- */
-function personalizedIntro(a: Account): string {
-  const oems = namedOems(a.supplierPressure);
-  const cert = a.certifications[0];
-  // Sentence 1 — the most specific real hook available.
-  let s1: string;
-  if (oems) {
-    s1 = `wir haben gesehen, dass ${a.company} als Zulieferer u. a. für ${oems} produziert — und genau diese OEMs verlangen inzwischen ISO-14067-konforme PCF-Daten entlang Catena-X.`;
-  } else if (cert && a.products) {
-    s1 = `mit Ihrer ${cert}-Zertifizierung und dem Fokus auf ${a.products} steht ${a.company} unter wachsendem Druck, CO₂-Daten auf Produkt- und Lieferantenebene nachzuweisen.`;
-  } else if (cert) {
-    s1 = `da ${a.company} ${cert}-zertifiziert ist, sind belastbare CO₂- und Nachhaltigkeitsdaten für Sie ohnehin geschäftskritisch.`;
-  } else if (a.products) {
-    s1 = `uns ist aufgefallen, dass ${a.company} mit ${a.products} in einem Segment tätig ist, in dem Kunden zunehmend Scope-3-Daten anfragen.`;
-  } else if (a.catenaXRelevance) {
-    s1 = `da ${a.company} im Catena-X-/Automotive-Umfeld tätig ist, werden PCF-Daten nach ISO 14067 für Sie zunehmend zur Pflicht.`;
-  } else {
-    s1 = `wir haben gesehen, dass ${a.company} als ${a.industry}-Unternehmen vor wachsenden CO₂-Anforderungen Ihrer Kunden und der Regulatorik steht.`;
-  }
-  // Sentence 2 — a second real hook, only when the data supports it.
-  let s2 = "";
-  if (a.csrdRelevance && !/csrd/i.test(s1)) {
-    s2 = ` Mit der näher rückenden CSRD-Berichtspflicht wird die konsolidierte Scope-1/2/3-Erfassung für Sie schnell aufwändig.`;
-  } else if (a.customers.length && !oems) {
-    s2 = ` Gerade gegenüber Kunden wie ${a.customers.slice(0, 2).join(" und ")} zahlt sich eine saubere Datenbasis direkt aus.`;
-  } else if (a.catenaXRelevance && !/catena/i.test(s1)) {
-    s2 = ` Über Catena-X werden diese Daten zunehmend standardisiert eingefordert.`;
-  }
-  return (s1 + s2).trim();
-}
-
 /** How much real intelligence we hold on the account (data completeness, 0–100). */
 function confidenceScore(a: Account): number {
   const signals = [
@@ -222,61 +169,64 @@ function personalizationScore(a: Account, intro: string): number {
   return Math.min(100, p);
 }
 
-/** Campaign-dependent main CTA (text + target). */
-function ctaForCampaign(c: CampaignType): { text: string; url: string } {
-  if (c === "supplier-management" || c === "catena-x" || c === "csrd") {
-    return { text: "Kostenlose Demo vereinbaren", url: EMAIL_ASSETS.calendlyUrl };
-  }
-  return { text: "Jetzt 14 Tage kostenlos testen", url: EMAIL_ASSETS.trialUrl };
-}
+/**
+ * The primary CTA is fixed for every email: a turquoise "14 Tage kostenlos
+ * testen" button pointing at the trial. Booking a demo is offered separately as
+ * the secondary link (Calendly) rendered by the central template.
+ */
+const PRIMARY_CTA = { text: "14 Tage kostenlos testen", url: EMAIL_ASSETS.trialUrl } as const;
 
-/** Build all artifacts for one account from its REAL data. */
-export function buildOpportunity(a: Account, clock: () => string): RevenueOpportunity {
+/** Build all artifacts for one account from its REAL data, in the given copy variant. */
+export function buildOpportunity(a: Account, clock: () => string, variant: Variant = DEFAULT_VARIANT): RevenueOpportunity {
   const campaign = selectCampaign(a);
   const banner: BannerRef = { ...EMAIL_BANNER };
-  // Short clause of the REAL pain (first sentence, trimmed) — tighter copy.
-  const rawPain = a.painPoints[0] ?? `${campaign}-Anforderungen Ihrer Kunden`;
-  const pain = (rawPain.split(/[.;|]/)[0] ?? rawPain).slice(0, 160).trim();
-  const value = CAMPAIGN_VALUE[campaign];
 
-  // Personalized top part (the only part the engine generates per account).
-  const greeting = "Guten Tag,";
-  const intro = personalizedIntro(a);
-  const painLine = `Konkret heißt das: ${pain}.`;
-  const benefit = `Genau hier setzt HeyCarbo an: ${value}. Aufgebaut für den Mittelstand, nicht für Berater.`;
-  const cta = ctaForCampaign(campaign);
+  // The ONLY per-account text: short, conversion-first copy in the chosen tone.
+  const copy = buildCopy(a, variant);
+  const cta = PRIMARY_CTA;
 
-  // Central layout appended automatically (banner · turquoise CTA · Calendly · signature).
-  const emailHtml = renderEmail({ greeting, intro, pain: painLine, benefit, ctaText: cta.text, ctaUrl: cta.url });
+  // Central layout appended automatically:
+  //   text · banner · "14 Tage kostenlos testen" button · demo link · closing · signature.
+  const emailHtml = renderEmail({
+    greeting: copy.greeting, intro: copy.intro, value: copy.value, closing: copy.closing,
+    ctaText: cta.text, ctaUrl: cta.url,
+  });
 
   const subjects = [
-    `${a.company}: CO₂-Daten in Minuten statt Wochen`,
+    `${a.company}: CO₂-Bilanz & PCF in Minuten`,
     `${a.industry} & Scope 3 — kurze Frage`,
-    `Belastbare Lieferantendaten für ${a.company}?`,
+    `PCF-Daten für ${a.company}?`,
   ];
-  const previewText = `${value} — in Minuten statt Wochen.`;
+  const previewText = "CO₂-Bilanzen & Product Carbon Footprints in Minuten – auditfähig, für den Mittelstand.";
   const linkedin = `Guten Tag, ich verfolge, wie ${a.industry}-Unternehmen wie ${a.company} das Thema CO₂-/Scope-3-Daten angehen. Falls das bei Ihnen gerade Thema ist, tausche ich mich gern kurz aus — ganz unverbindlich.`;
-  const followUp1 = `Guten Tag, ich wollte kurz nachfassen — falls ${pain.toLowerCase()} bei ${a.company} relevant ist, zeige ich in 15 Minuten, wie HeyCarbo den Aufwand senkt. Passt diese Woche?`;
+  const followUp1 = `Guten Tag, ich wollte kurz nachfassen — falls CO₂-Bilanzierung und PCF-Daten bei ${a.company} gerade Thema sind, zeige ich in 15 Minuten, wie HeyCarbo den Aufwand senkt. Passt diese Woche?`;
   const followUp2 = `Guten Tag, ich lasse es für heute dabei. Wenn ${campaign}-Themen für ${a.company} später relevant werden, melden Sie sich gern: ${EMAIL_ASSETS.calendlyUrl}`;
+  const painShort = a.painPoints[0] ? germanizePain(a.painPoints[0]) : `${campaign}-Anforderungen der Kunden.`;
   const summary =
     `Warum HeyCarbo passt: ${a.industry}, Fit ${a.fitScore}/100, Revenue-Potenzial ${a.revenueScore}/100. ` +
-    `Größter vermuteter Pain: ${pain}. Kampagne „${campaign}" gewählt, weil die realen Signale (Relevanz/Pain) darauf zeigen.`;
+    `Größter vermuteter Pain: ${painShort} Copy-Variante „${variant}" (${VARIANT_LABEL[variant]}).`;
 
   // Quality gates run on the PERSONALIZED copy only — not the fixed central
-  // template (banner/CTA/signature are governed centrally, not per account).
-  // The email body drives the conciseness + repetition checks (<30s read).
-  const bodyText = [greeting, intro, painLine, benefit].join(" ");
-  const quality = qualityCheck([greeting, intro, painLine, benefit, linkedin, followUp1, followUp2, ...subjects], bodyText);
+  // template. The email body drives the conciseness + repetition checks (<30s read).
+  const bodyText = [copy.greeting, copy.intro, copy.value, copy.closing].join(" ");
+  const quality = qualityCheck([copy.greeting, copy.intro, copy.value, copy.closing, linkedin, followUp1, followUp2, ...subjects], bodyText);
   return {
     accountId: a.id, company: a.company, industry: a.industry,
     ...(a.contactTitle ? { contactTitle: a.contactTitle } : {}),
     ...(a.email ? { email: a.email } : {}),
-    campaign, subjects, previewText, emailHtml, linkedin, followUp1, followUp2, summary, banner,
+    variant, campaign, subjects, previewText, emailHtml, linkedin, followUp1, followUp2, summary, banner,
     ctaText: cta.text, ctaUrl: cta.url, quality,
-    personalizationScore: personalizationScore(a, intro), confidenceScore: confidenceScore(a),
+    personalizationScore: personalizationScore(a, copy.intro), confidenceScore: confidenceScore(a),
     fitScore: a.fitScore, revenueScore: a.revenueScore, buyingIntent: a.buyingIntent, priority: a.priority,
     createdAt: clock(),
   };
+}
+
+/** Build the same account in ALL five copy variants (for A/E comparison + analysis). */
+export function buildVariants(a: Account, clock: () => string): Record<Variant, RevenueOpportunity> {
+  const out = {} as Record<Variant, RevenueOpportunity>;
+  for (const v of VARIANTS) out[v] = buildOpportunity(a, clock, v);
+  return out;
 }
 
 /** The morning "Revenue Center" view — what TedOS prepared, ready to approve. */
