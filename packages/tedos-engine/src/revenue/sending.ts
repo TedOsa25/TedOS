@@ -24,6 +24,8 @@ export interface OutboundEmail {
   from: string;
   fromName?: string;
   replyTo?: string;
+  /** Blind carbon copy — hidden from the recipient (true BCC, never a CC). */
+  bcc?: string;
   subject: string;
   html: string;
   text?: string;
@@ -99,6 +101,7 @@ const brevo: EmailProvider = {
         body: JSON.stringify({
           sender: { email: email.from, name: email.fromName },
           to: [{ email: email.to, name: email.toName }],
+          ...(email.bcc ? { bcc: [{ email: email.bcc }] } : {}),
           ...(email.replyTo ? { replyTo: { email: email.replyTo } } : {}),
           subject: email.subject,
           htmlContent: email.html,
@@ -134,6 +137,7 @@ const mailjet: EmailProvider = {
           Messages: [{
             From: { Email: email.from, Name: email.fromName },
             To: [{ Email: email.to, Name: email.toName }],
+            ...(email.bcc ? { Bcc: [{ Email: email.bcc }] } : {}),
             ...(email.replyTo ? { ReplyTo: { Email: email.replyTo } } : {}),
             Subject: email.subject,
             HTMLPart: email.html,
@@ -191,6 +195,7 @@ const smtp: EmailProvider = {
       const info = await transport.sendMail({
         from: email.fromName ? `${email.fromName} <${email.from}>` : email.from,
         to: email.toName ? `${email.toName} <${email.to}>` : email.to,
+        ...(email.bcc ? { bcc: email.bcc } : {}),
         ...(email.replyTo ? { replyTo: email.replyTo } : {}),
         subject: email.subject,
         html: email.html,
