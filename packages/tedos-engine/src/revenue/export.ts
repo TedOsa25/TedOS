@@ -7,6 +7,7 @@
 
 import type { RevenueOpportunity, RevenueCenter } from "./revenue-engine.js";
 import { templateMeta } from "./email-template.js";
+import { isSendArmed, providerStatus, selectedProviderName } from "./sending.js";
 
 /** The approval lifecycle a prepared artifact moves through (manual only). */
 export type RevenueStatus =
@@ -23,6 +24,13 @@ export interface RevenueCenterExport {
   summary: RevenueCenter;
   /** Central template assets (banner, signature, Calendly, brand colour). */
   template: ReturnType<typeof templateMeta>;
+  /** Sending layer — PREPARED, NOT ACTIVE. Lets the UI show + pick a provider. */
+  sending: {
+    /** Master switch — false means nothing can be sent (dry-run). */
+    armed: boolean;
+    selected: ReturnType<typeof selectedProviderName>;
+    providers: ReturnType<typeof providerStatus>;
+  };
   accounts: ExportedOpportunity[];
 }
 
@@ -39,6 +47,7 @@ export function buildRevenueExport(
     generatedAt: now,
     summary,
     template: templateMeta(),
+    sending: { armed: isSendArmed(), selected: selectedProviderName(), providers: providerStatus() },
     accounts: opportunities.map((o) => ({ ...o, status: "pending approval" as const })),
   };
 }

@@ -49,7 +49,7 @@ const OEM_DISPLAY: Record<string, string> = {
   volvo: "Volvo", tesla: "Tesla", magna: "Magna", valeo: "Valeo",
 };
 export function namedOems(sp: string | undefined): string | null {
-  if (!sp) return null;
+  if (!sp || typeof sp !== "string") return null;
   const m = sp.match(OEM_RE);
   if (!m) return null;
   const seen = Array.from(new Set(m.map((x) => OEM_DISPLAY[x.toLowerCase()] ?? x))).slice(0, 3);
@@ -69,7 +69,9 @@ export function oemClause(a: Account): string | null {
  * sentence. Keyword-mapped for the common cases; otherwise trimmed to a short
  * clause. Deterministic — no runtime LLM.
  */
-export function germanizePain(raw: string): string {
+export function germanizePain(rawInput: string): string {
+  const raw = String(rawInput ?? "").trim();
+  if (!raw) return "belastbare CO₂- und Product-Carbon-Footprint-Daten.";
   const map: [RegExp, string][] = [
     [/iso ?14067|pcf|product carbon|cradle/i, "Product Carbon Footprints nach ISO 14067 werden von Kunden gefordert."],
     [/catena|pact|wbcsd/i, "Catena-X verlangt standardisierte CO₂-Daten."],
@@ -85,13 +87,18 @@ export function germanizePain(raw: string): string {
   return /[.!?…]$/.test(short) ? short : `${short}.`;
 }
 
-/** A relevance field counts as a real signal when present and not "low/none". */
-const signal = (v?: string): boolean => !!v && !/^(low|none|no|niedrig|keine?|n\/a)$/i.test(v.trim());
+/** A relevance field counts as a real signal when present and not "low/none".
+ *  Robust to messy CRM data (booleans, numbers, null) — coerces before testing. */
+const signal = (v?: unknown): boolean => {
+  if (v === undefined || v === null || v === false) return false;
+  const s = String(v).trim().toLowerCase();
+  return s !== "" && !/^(low|none|no|niedrig|keine?|n\/a|false|0)$/.test(s);
+};
 
 /** Coarse industry bucket derived from the account's real industry string. */
 type Bucket = "automotive" | "maschinenbau" | "chemie" | "logistik" | "elektronik" | "generic";
 function classifyIndustry(industry: string): Bucket {
-  const s = industry.toLowerCase();
+  const s = String(industry ?? "").toLowerCase();
   if (/automotive|mobility|fahrzeug|automobil|\bkfz\b/.test(s)) return "automotive";
   if (/maschinen|anlagen|machinery|mechanical|engineering/.test(s)) return "maschinenbau";
   if (/chemie|chemical|kunststoff|plastic|polymer|pharma/.test(s)) return "chemie";
