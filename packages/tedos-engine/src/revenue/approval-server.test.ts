@@ -40,12 +40,17 @@ beforeEach(() => { saved = process.env.REVENUE_SEND_ENABLED; delete process.env.
 afterEach(() => { if (saved === undefined) delete process.env.REVENUE_SEND_ENABLED; else process.env.REVENUE_SEND_ENABLED = saved; });
 
 describe("approval UI: page", () => {
-  test("GET / renders the required columns + bulk actions", async () => {
+  test("GET / renders columns, bulk actions, KPIs, search, filter, sort", async () => {
     const s = new InMemoryStorage();
     await withServer(s, [acct("a1")], async (base) => {
       const html = await fetch(base).then((r) => r.text());
       for (const col of ["Firma", "Ansprechpartner", "E-Mail", "Branche", "Prio", "Betreff", "Vorschau"]) assert.match(html, new RegExp(col));
       for (const b of ["Approve All Visible", "Approve Top 10", "Approve Top 20", "Approve Selected"]) assert.match(html, new RegExp(b));
+      for (const kpi of ["Pending", "Approved", "Sent", "Replies", "Bounces", "Demos", "Won", "Unsubscribed"]) assert.match(html, new RegExp(kpi));
+      assert.match(html, /id="q"/);          // search field
+      assert.match(html, /id="fStatus"/);    // status filter
+      assert.match(html, /id="fSort"/);      // sort
+      assert.doesNotMatch(html, /localStorage/); // no localStorage logic
     });
   });
 });

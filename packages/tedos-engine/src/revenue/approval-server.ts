@@ -38,75 +38,128 @@ function readJson(req: IncomingMessage): Promise<any> {
   });
 }
 
-/** The approval page — server-rendered shell + embedded review data. */
+/** KPI tiles shown at the top: label → lifecycle status key. */
+const KPIS: { label: string; key: string }[] = [
+  { label: "Pending", key: "pending" }, { label: "Approved", key: "approved" },
+  { label: "Sent", key: "sent" }, { label: "Replies", key: "replied" },
+  { label: "Bounces", key: "bounced" }, { label: "Demos", key: "demo-booked" },
+  { label: "Won", key: "won" }, { label: "Unsubscribed", key: "unsubscribed" },
+];
+
+/** The single Revenue Center page — server-rendered shell + embedded review data. */
 function page(rows: LeadReviewRow[], counts: Record<string, number>): string {
   const data = JSON.stringify(rows).replace(/</g, "\\u003c");
-  const countLine = Object.entries(counts).filter(([, n]) => n > 0).map(([s, n]) => `${s}: ${n}`).join(" · ") || "—";
+  const kpiJson = JSON.stringify(KPIS);
+  const countsJson = JSON.stringify(counts).replace(/</g, "\\u003c");
   return `<!doctype html><html lang="de"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Revenue Center — Approval</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Revenue Center</title>
 <style>
-:root{--bg:#0e1116;--panel:#161b22;--line:#232a33;--txt:#e6edf3;--mut:#8b949e;--acc:#13A6A6;--ok:#238636;--no:#a1242f;--sk:#8a6d1a}
+:root{--bg:#0e1116;--panel:#161b22;--panel2:#1b222b;--line:#232a33;--txt:#e6edf3;--mut:#8b949e;--acc:#13A6A6}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 Inter,Arial,sans-serif}
 header{padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
-h1{font-size:16px;margin:0 0 4px}.mut{color:var(--mut);font-size:12px}
-.bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+h1{font-size:16px;margin:0 0 10px}.mut{color:var(--mut);font-size:12px}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;min-width:96px}
+.kpi .n{font-size:20px;font-weight:700}.kpi .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+input[type=text],select{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;outline:none}
+input[type=text]:focus,select:focus{border-color:var(--acc)}
+.bar{display:flex;gap:8px;flex-wrap:wrap}
 button{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer}
 button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#04211f;font-weight:600}
 .wrap{padding:16px 20px;overflow-x:auto}
-table{border-collapse:collapse;width:100%;min-width:900px}
+table{border-collapse:collapse;width:100%;min-width:960px}
 th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
-th{color:var(--mut);font-weight:600;font-size:12px}
+th{color:var(--mut);font-weight:600;font-size:12px;cursor:pointer}
 .co{font-weight:600}.badge{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line)}
 .b-approved{color:#7fd1c8;border-color:#1f5c56}.b-lost{color:#e0918f;border-color:#5c2b2b}.b-pending{color:#d9b25a;border-color:#5c4a1f}
-.b-sent{color:#8ab4f8;border-color:#274268}.b-unsubscribed{color:#c98bd6;border-color:#4a2b52}.b-active{color:var(--mut)}
-.act button{padding:4px 9px;margin-right:4px}
-.ap{color:#7fd1c8}.rj{color:#e0918f}.sk{color:#d9b25a}
+.b-sent{color:#8ab4f8;border-color:#274268}.b-replied{color:#a6e3a1;border-color:#2d5c2a}.b-unsubscribed{color:#c98bd6;border-color:#4a2b52}
+.b-active{color:var(--mut)}.b-bounced{color:#e0918f;border-color:#5c2b2b}.b-demo-booked{color:#7fd1c8;border-color:#1f5c56}.b-won{color:#a6e3a1;border-color:#2d5c2a}
+.act button{padding:4px 9px;margin-right:4px}.ap{color:#7fd1c8}.rj{color:#e0918f}.sk{color:#d9b25a}
 dialog{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:12px;width:min(680px,94vw);padding:0}
-dialog header{position:static;border:0}iframe{width:100%;height:60vh;border:1px solid var(--line);border-radius:8px;background:#fff}
+iframe{width:100%;height:60vh;border:1px solid var(--line);border-radius:8px;background:#fff}
 .note{background:#1c2530;border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--mut);font-size:12px;margin-top:10px}
 </style></head><body>
 <header>
-  <h1>Revenue Center — Approval</h1>
-  <div class="mut" id="counts">${esc(countLine)}</div>
+  <h1>Revenue Center</h1>
+  <div class="kpis" id="kpis"></div>
+  <div class="tools">
+    <input type="text" id="q" placeholder="Suche: Firma · E-Mail · Branche · Betreff">
+    <select id="fStatus">
+      <option value="all">Alle Status</option>
+      <option value="pending">Pending</option><option value="approved">Approved</option>
+      <option value="sent">Sent</option><option value="replied">Replied</option>
+      <option value="unsubscribed">Unsubscribed</option>
+    </select>
+    <select id="fSort">
+      <option value="priority">Sortierung: Priorität</option>
+      <option value="company">Sortierung: Company</option>
+      <option value="industry">Sortierung: Branche</option>
+    </select>
+  </div>
   <div class="bar">
     <button class="primary" data-bulk="visible">Approve All Visible</button>
     <button data-bulk="top10">Approve Top 10</button>
     <button data-bulk="top20">Approve Top 20</button>
     <button data-bulk="selected">Approve Selected</button>
   </div>
-  <div class="note">„Approve" setzt nur den Status. Der Versand erfolgt separat über <code>sendApprovedBatch()</code> und bleibt gated (<code>REVENUE_SEND_ENABLED</code>). Diese Seite sendet nie.</div>
+  <div class="note">„Approve" setzt nur den Status im Engine-Store. Der Versand erfolgt separat über <code>sendApprovedBatch()</code> und bleibt gated (<code>REVENUE_SEND_ENABLED</code>). Diese Seite sendet nie.</div>
 </header>
 <div class="wrap">
   <table><thead><tr>
-    <th><input type="checkbox" id="all"></th><th>Firma</th><th>Ansprechpartner</th><th>E-Mail</th>
-    <th>Branche</th><th>Prio</th><th>Betreff</th><th>Status</th><th>Aktion</th><th>Vorschau</th>
+    <th><input type="checkbox" id="all"></th><th data-sort="company">Firma</th><th>Ansprechpartner</th><th>E-Mail</th>
+    <th data-sort="industry">Branche</th><th data-sort="priority">Prio</th><th>Betreff</th><th>Status</th><th>Aktion</th><th>Vorschau</th>
   </tr></thead><tbody id="rows"></tbody></table>
 </div>
 <dialog id="pv"><header style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)">
   <strong id="pvT"></strong><button onclick="pv.close()">✕</button></header>
   <div style="padding:14px 16px"><iframe id="pvF"></iframe></div></dialog>
 <script>
-const ROWS = ${data};
+const ROWS = ${data};        // full review set (embedded)
+const KPIS = ${kpiJson};
+let COUNTS = ${countsJson};
+let VIEW = ROWS.slice();     // filtered + sorted view currently rendered
+const F = { q:"", status:"all", sort:"priority" };
 const BADGE = s => '<span class="badge b-'+s+'">'+s+'</span>';
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderKpis(){ document.getElementById('kpis').innerHTML = KPIS.map(function(k){ return '<div class="kpi"><div class="n">'+(COUNTS[k.key]||0)+'</div><div class="l">'+k.label+'</div></div>'; }).join(''); }
 function row(r){
   return '<tr data-id="'+r.accountId+'">'
     +'<td><input type="checkbox" class="sel"></td>'
     +'<td class="co">'+esc(r.company)+'</td><td>'+esc(r.contact||'—')+'</td><td>'+esc(r.email||'—')+'</td>'
     +'<td>'+esc(r.industry)+'</td><td>'+r.priority+'</td><td>'+esc(r.subject)+'</td>'
     +'<td class="st">'+BADGE(r.status)+'</td>'
-    +'<td class="act"><button class="ap" data-a="approve">✓</button><button class="rj" data-a="reject">✗</button><button class="sk" data-a="skip">☐</button></td>'
+    +'<td class="act"><button class="ap" data-a="approve">✓ Approve</button><button class="rj" data-a="reject">✗ Reject</button><button class="sk" data-a="skip">☐ Skip</button></td>'
     +'<td><button data-pv="'+r.accountId+'">Vorschau</button></td></tr>';
 }
-function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-document.getElementById('rows').innerHTML = ROWS.map(row).join('');
-function idsOf(sel){return [].map.call(document.querySelectorAll(sel),function(el){return el.closest('tr').getAttribute('data-id')});}
+function applyView(){
+  const q=F.q.toLowerCase();
+  VIEW = ROWS.filter(function(r){
+    if(F.status!=='all' && r.status!==F.status) return false;
+    if(!q) return true;
+    return [r.company,r.contact,r.email,r.industry,r.subject].some(function(v){return String(v||'').toLowerCase().indexOf(q)>-1});
+  });
+  VIEW.sort(function(a,b){
+    if(F.sort==='company') return String(a.company).localeCompare(String(b.company));
+    if(F.sort==='industry') return String(a.industry).localeCompare(String(b.industry))||b.priority-a.priority;
+    return b.priority-a.priority; // priority (default)
+  });
+  document.getElementById('rows').innerHTML = VIEW.map(row).join('');
+}
+function idsSelected(){ return [].map.call(document.querySelectorAll('.sel:checked'),function(el){return el.closest('tr').getAttribute('data-id')}); }
 async function act(action, ids){
   if(!ids.length) return;
   const res = await fetch('/api/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:action,ids:ids})});
   const j = await res.json();
-  (j.statuses||[]).forEach(function(s){ const tr=document.querySelector('tr[data-id="'+s.id+'"]'); if(tr) tr.querySelector('.st').innerHTML=BADGE(s.status); });
-  if(j.counts) document.getElementById('counts').textContent = Object.keys(j.counts).filter(k=>j.counts[k]>0).map(k=>k+': '+j.counts[k]).join(' · ')||'—';
+  (j.statuses||[]).forEach(function(s){ const r=ROWS.find(x=>x.accountId===s.id); if(r) r.status=s.status; });
+  if(j.counts){ COUNTS=j.counts; renderKpis(); }
+  applyView();
 }
+renderKpis(); applyView();
+document.getElementById('q').addEventListener('input',function(e){F.q=e.target.value;applyView()});
+document.getElementById('fStatus').addEventListener('change',function(e){F.status=e.target.value;applyView()});
+document.getElementById('fSort').addEventListener('change',function(e){F.sort=e.target.value;applyView()});
+[].forEach.call(document.querySelectorAll('th[data-sort]'),function(th){ th.onclick=function(){ F.sort=th.getAttribute('data-sort'); document.getElementById('fSort').value=F.sort; applyView(); }; });
 document.getElementById('rows').addEventListener('click',function(e){
   const a=e.target.getAttribute('data-a'); if(a){ act(a,[e.target.closest('tr').getAttribute('data-id')]); return; }
   const pv=e.target.getAttribute('data-pv'); if(pv){ const r=ROWS.find(x=>x.accountId===pv); document.getElementById('pvT').textContent=r.company; document.getElementById('pvF').srcdoc=r.emailHtml; document.getElementById('pv').showModal(); }
@@ -114,10 +167,10 @@ document.getElementById('rows').addEventListener('click',function(e){
 document.getElementById('all').addEventListener('change',function(e){ [].forEach.call(document.querySelectorAll('.sel'),function(c){c.checked=e.target.checked}); });
 document.querySelectorAll('[data-bulk]').forEach(function(b){ b.onclick=function(){
   const k=b.getAttribute('data-bulk'); let ids;
-  if(k==='visible') ids=ROWS.map(r=>r.accountId);
-  else if(k==='top10') ids=ROWS.slice(0,10).map(r=>r.accountId);
-  else if(k==='top20') ids=ROWS.slice(0,20).map(r=>r.accountId);
-  else if(k==='selected') ids=idsOf('.sel:checked');
+  if(k==='visible') ids=VIEW.map(r=>r.accountId);            // all currently visible (filtered) rows
+  else if(k==='top10') ids=VIEW.slice(0,10).map(r=>r.accountId);
+  else if(k==='top20') ids=VIEW.slice(0,20).map(r=>r.accountId);
+  else if(k==='selected') ids=idsSelected();
   act('approve', ids);
 };});
 </script></body></html>`;
