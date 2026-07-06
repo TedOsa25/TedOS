@@ -276,6 +276,8 @@ export interface BatchSendOptions {
   clock?: () => string;
   /** BCC address for batch 1 (default ted@heycarbo.com). Set "" to disable. */
   bccFirstBatch?: string;
+  /** Explicit BCC for THIS batch — overrides the batch-1-only default (any size). "" disables. */
+  bcc?: string;
   /** Auto-disarm the master switch after the batch (default true). */
   disarmAfter?: boolean;
 }
@@ -308,11 +310,12 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
     notes.push(`batchSize ${batchSize} capped to ${FIRST_BATCH_HARD_CAP} for batch 1`);
   }
 
-  // BCC applies to batch 1 only.
-  const bccActive = batchNumber === 1 && !!bccFirstBatch;
-  const bccAddress = bccActive ? bccFirstBatch : undefined;
-  if (bccActive) notes.push(`BCC active for batch 1 → ${bccAddress} (hidden from recipient)`);
-  else if (batchNumber !== 1) notes.push(`no BCC (batch ${batchNumber} — BCC is batch-1 only)`);
+  // BCC: an explicit opts.bcc overrides the batch-1-only default (works at any
+  // batch size). "" disables. Undefined → the batch-1-only default.
+  const bccAddress = opts.bcc !== undefined ? (opts.bcc || undefined) : (batchNumber === 1 && bccFirstBatch ? bccFirstBatch : undefined);
+  const bccActive = !!bccAddress;
+  if (bccActive) notes.push(`BCC active → ${bccAddress} (hidden from recipient)`);
+  else notes.push(`no BCC (batch ${batchNumber})`);
 
   const armed = isSendArmed();
   if (!armed && !dryRun) notes.push("master switch OFF — every dispatch will be a dry-run 'skipped'");

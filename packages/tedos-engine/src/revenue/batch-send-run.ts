@@ -20,6 +20,8 @@ import { selectedProviderName, getProvider } from "./sending.js";
 import { sendApprovedBatch, loadLeadStatus, formatBatchReport } from "./batch-send.js";
 
 const BATCH_SIZE = Number(process.env.REVENUE_BATCH_SIZE ?? 20);
+// BCC monitoring copy: default ted@heycarbo.com; REVENUE_BCC=off disables.
+const BCC = (process.env.REVENUE_BCC ?? "ted@heycarbo.com").toLowerCase() === "off" ? "" : (process.env.REVENUE_BCC ?? "ted@heycarbo.com");
 
 /** Masked fingerprint of a secret: length + sha256 prefix. Reveals nothing usable. */
 function fingerprint(v: string | undefined): string {
@@ -78,7 +80,7 @@ async function main(): Promise<void> {
   }
 
   const approved = Object.values(loadLeadStatus(storage)).filter((r) => r.status === "approved").length;
-  console.log(`Store: ${process.env.TEDOS_STORAGE_PATH} · approved Leads: ${approved} · Provider: ${selectedProviderName()} · Master-Switch: ${process.env.REVENUE_SEND_ENABLED === "1" ? "ARMED" : "OFF (dry-run)"}\n`);
+  console.log(`Store: ${process.env.TEDOS_STORAGE_PATH} · approved Leads: ${approved} · batchSize: ${BATCH_SIZE} · BCC: ${BCC || "aus"} · Provider: ${selectedProviderName()} · Master-Switch: ${process.env.REVENUE_SEND_ENABLED === "1" ? "ARMED" : "OFF (dry-run)"}\n`);
   if (approved === 0) { console.log("Keine approveten Leads — in der Revenue-Center-UI zuerst freigeben. (Nichts gesendet.)"); return; }
 
   if (!(await preflightSmtp())) { console.log("\nAbbruch vor Versand (SMTP-Preflight)."); return; }
@@ -87,7 +89,7 @@ async function main(): Promise<void> {
     storage,
     accounts: loadAccounts(), // real CRM
     batchSize: BATCH_SIZE,
-    batchNumber: 1, // batch 1 → BCC ted@heycarbo.com
+    bcc: BCC, // explicit → BCC applies at any batch size ("" disables)
     provider: getProvider(),
     clock: () => new Date().toISOString(),
   });

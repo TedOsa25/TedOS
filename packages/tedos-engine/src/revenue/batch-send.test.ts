@@ -83,7 +83,7 @@ describe("batch-send: BCC is batch-1 only", () => {
     assert.ok(seen.every((e) => e.bcc === BCC_FIRST_BATCH));
   });
 
-  test("batch 2 carries no BCC", async () => {
+  test("batch 2 carries no BCC by default", async () => {
     const storage = new InMemoryStorage();
     approveLeads(storage, ["acct-1"]);
     process.env.REVENUE_SEND_ENABLED = "1"; // arm so dispatch reaches the provider
@@ -91,6 +91,29 @@ describe("batch-send: BCC is batch-1 only", () => {
     const r = await sendApprovedBatch({ storage, accounts: accounts(1), provider, batchNumber: 2, clock });
     assert.equal(r.bccApplied, false);
     assert.equal(r.bccCopies, 0);
+    assert.ok(seen.every((e) => e.bcc === undefined));
+  });
+
+  test("explicit bcc applies at ANY batch (e.g. batch 2, size 50)", async () => {
+    const storage = new InMemoryStorage();
+    const ids = Array.from({ length: 3 }, (_, i) => `acct-${i + 1}`);
+    approveLeads(storage, ids);
+    process.env.REVENUE_SEND_ENABLED = "1";
+    const { provider, seen } = spyProvider();
+    const r = await sendApprovedBatch({ storage, accounts: accounts(3), provider, batchNumber: 2, bcc: "ted@heycarbo.com", clock });
+    assert.equal(r.bccApplied, true);
+    assert.equal(r.bccAddress, "ted@heycarbo.com");
+    assert.equal(r.bccCopies, 3);
+    assert.ok(seen.every((e) => e.bcc === "ted@heycarbo.com"));
+  });
+
+  test("explicit bcc:'' disables BCC even on batch 1", async () => {
+    const storage = new InMemoryStorage();
+    approveLeads(storage, ["acct-1"]);
+    process.env.REVENUE_SEND_ENABLED = "1";
+    const { provider, seen } = spyProvider();
+    const r = await sendApprovedBatch({ storage, accounts: accounts(1), provider, batchNumber: 1, bcc: "", clock });
+    assert.equal(r.bccApplied, false);
     assert.ok(seen.every((e) => e.bcc === undefined));
   });
 });
