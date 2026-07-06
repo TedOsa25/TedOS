@@ -186,11 +186,21 @@ const smtp: EmailProvider = {
       const mod = "nodemailer";
       const nodemailer = (await import(mod).catch(() => null)) as any;
       if (!nodemailer) return ok("smtp", "error", { detail: "SMTP selected but 'nodemailer' is not installed (npm i nodemailer)" });
+      // Transport options mirror the proven send:test path exactly (secure/port,
+      // STARTTLS requirement at 587, single-connection, timeouts).
+      const secure = process.env.SMTP_SECURE === "1";
       const transport = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT),
-        secure: process.env.SMTP_SECURE === "1",
+        port: Number(process.env.SMTP_PORT ?? (secure ? 465 : 587)),
+        secure,
+        requireTLS: !secure,
         auth: { user: process.env.SMTP_USER as string, pass: process.env.SMTP_PASS as string },
+        pool: false,
+        maxConnections: 1,
+        maxMessages: 1,
+        connectionTimeout: 15000,
+        greetingTimeout: 10000,
+        socketTimeout: 20000,
       });
       const info = await transport.sendMail({
         from: email.fromName ? `${email.fromName} <${email.from}>` : email.from,

@@ -48,10 +48,16 @@ async function preflightSmtp(): Promise<boolean> {
     const mod = "nodemailer";
     const nodemailer = (await import(mod).catch(() => null)) as any;
     if (!nodemailer) { console.log("⚠ nodemailer nicht installiert."); return false; }
+    // Mirror the proven send:test transport exactly (removes any transport doubt).
+    const secure = process.env.SMTP_SECURE === "1";
     const t = nodemailer.createTransport({
-      host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT),
-      secure: process.env.SMTP_SECURE === "1",
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT ?? (secure ? 465 : 587)),
+      secure,
+      requireTLS: !secure,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      pool: false, maxConnections: 1, maxMessages: 1,
+      connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 20000,
     });
     await t.verify(); t.close();
     console.log(`✅ SMTP-Verbindung OK (${process.env.SMTP_HOST}:${process.env.SMTP_PORT}).`);
