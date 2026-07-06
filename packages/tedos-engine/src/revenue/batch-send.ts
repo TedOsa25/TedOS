@@ -310,10 +310,12 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
   const priorSent = Object.values(statusMap).filter((r) => r.status === "sent").length;
   const batchNumber = opts.batchNumber ?? (priorSent === 0 ? 1 : Math.floor(priorSent / batchSize) + 1);
 
-  // Batch 1 is hard-capped at 20 no matter what was requested.
-  const effectiveSize = batchNumber === 1 ? Math.min(batchSize, FIRST_BATCH_HARD_CAP) : batchSize;
-  if (batchNumber === 1 && batchSize > FIRST_BATCH_HARD_CAP) {
-    notes.push(`batchSize ${batchSize} capped to ${FIRST_BATCH_HARD_CAP} for batch 1`);
+  // The 20-cap protects only the FIRST-EVER batch (nothing sent yet). Once real
+  // emails have gone out, the pipeline is validated and batchSize governs.
+  const firstEver = priorSent === 0;
+  const effectiveSize = firstEver ? Math.min(batchSize, FIRST_BATCH_HARD_CAP) : batchSize;
+  if (firstEver && batchSize > FIRST_BATCH_HARD_CAP) {
+    notes.push(`batchSize ${batchSize} capped to ${FIRST_BATCH_HARD_CAP} for the first-ever batch`);
   }
 
   // BCC: an explicit opts.bcc overrides the batch-1-only default (works at any
