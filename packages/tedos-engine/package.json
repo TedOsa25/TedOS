@@ -60,7 +60,8 @@
     "test:unsubscribe": "tsx src/revenue/unsubscribe.test.ts",
     "test:approval": "tsx src/revenue/approval-server.test.ts",
     "approval:ui": "tsx src/revenue/approval-ui.ts",
-    "batch:send": "tsx src/revenue/batch-send-run.ts"
+    "batch:send": "tsx src/revenue/batch-send-run.ts",
+    "smtp:diag": "tsx src/revenue/smtp-diag.ts"
   },
   "keywords": [],
   "author": "",

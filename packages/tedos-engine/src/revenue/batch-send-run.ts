@@ -13,6 +13,7 @@
 //
 // Without REVENUE_SEND_ENABLED=1 it is a dry run (reports, sends nothing).
 
+import { createHash } from "node:crypto";
 import { createStorage } from "./../storage.js";
 import { loadAccounts } from "./accounts.js";
 import { selectedProviderName, getProvider } from "./sending.js";
@@ -20,8 +21,27 @@ import { sendApprovedBatch, loadLeadStatus, formatBatchReport } from "./batch-se
 
 const BATCH_SIZE = Number(process.env.REVENUE_BATCH_SIZE ?? 20);
 
+/** Masked fingerprint of a secret: length + sha256 prefix. Reveals nothing usable. */
+function fingerprint(v: string | undefined): string {
+  if (!v) return "<leer/ungesetzt>";
+  return `len=${v.length} sha256=${createHash("sha256").update(v).digest("hex").slice(0, 8)}`;
+}
+
+/** Print the exact SMTP inputs (password masked) — for comparing send:test vs batch:send. */
+function echoSmtpEnv(): void {
+  console.log("── SMTP-Inputs (vor Login, Passwort maskiert) ──");
+  console.log(`SMTP_HOST=${process.env.SMTP_HOST ?? "<ungesetzt>"}`);
+  console.log(`SMTP_PORT=${process.env.SMTP_PORT ?? "<ungesetzt>"}`);
+  console.log(`SMTP_SECURE=${process.env.SMTP_SECURE ?? "<ungesetzt>"}`);
+  console.log(`SMTP_USER=${process.env.SMTP_USER ?? "<ungesetzt>"}`);
+  console.log(`Provider=${selectedProviderName()}`);
+  console.log(`SMTP_PASS(fingerprint)=${fingerprint(process.env.SMTP_PASS)}`);
+  console.log("────────────────────────────────────────────────");
+}
+
 async function preflightSmtp(): Promise<boolean> {
   if (selectedProviderName() !== "smtp" || process.env.REVENUE_SEND_ENABLED !== "1") return true;
+  echoSmtpEnv();
   const missing = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"].filter((k) => !process.env[k]);
   if (missing.length) { console.log(`⚠ SMTP-Konfig unvollständig: ${missing.join(", ")} fehlt.`); return false; }
   try {
