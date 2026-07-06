@@ -64,6 +64,8 @@ export interface LeadRecord {
   campaign?: string;
   industry?: string;
   variant?: Variant;
+  /** Operator batch label (e.g. "Pilot Batch 02"), when provided. */
+  batchCampaign?: string;
   /** Opt-out bookkeeping. */
   unsubscribed_at?: string;
   unsubscribe_reason?: string;
@@ -88,6 +90,8 @@ export interface BatchResultLine {
 /** The full send report returned by sendApprovedBatch(). */
 export interface BatchReport {
   batchNumber: number;
+  /** Operator campaign label for this batch, if provided. */
+  campaignLabel?: string;
   provider: ProviderName;
   dryRun: boolean;
   armed: boolean;
@@ -278,6 +282,8 @@ export interface BatchSendOptions {
   bccFirstBatch?: string;
   /** Explicit BCC for THIS batch — overrides the batch-1-only default (any size). "" disables. */
   bcc?: string;
+  /** Operator campaign label for this batch (e.g. "Pilot Batch 02"), recorded + reported. */
+  campaignLabel?: string;
   /** Auto-disarm the master switch after the batch (default true). */
   disarmAfter?: boolean;
 }
@@ -386,6 +392,7 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
       campaign: opp.campaign,
       industry: account.industry,
       variant,
+      ...(opts.campaignLabel ? { batchCampaign: opts.campaignLabel } : {}),
       ...(result.messageId ? { messageId: result.messageId } : {}),
       ...(result.status === "error" && result.detail ? { error: result.detail } : {}),
     };
@@ -409,6 +416,7 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
 
   return {
     batchNumber,
+    ...(opts.campaignLabel ? { campaignLabel: opts.campaignLabel } : {}),
     provider: provider.name,
     dryRun,
     armed,
@@ -433,7 +441,7 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
 export function formatBatchReport(r: BatchReport): string {
   const L: string[] = [];
   L.push("── Versandbericht ─────────────────────────────────────────");
-  L.push(`Batch                : #${r.batchNumber}${r.dryRun ? "  (DRY RUN — nichts gesendet)" : ""}`);
+  L.push(`Batch                : #${r.batchNumber}${r.campaignLabel ? ` · Kampagne: ${r.campaignLabel}` : ""}${r.dryRun ? "  (DRY RUN — nichts gesendet)" : ""}`);
   L.push(`Provider             : ${r.provider}`);
   L.push(`Master-Switch        : ${r.armed ? "ARMED (REVENUE_SEND_ENABLED=1)" : "OFF (dry-run)"}`);
   L.push(`Approved verfügbar   : ${r.approvedAvailable}`);

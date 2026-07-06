@@ -85,11 +85,13 @@ async function main(): Promise<void> {
 
   if (!(await preflightSmtp())) { console.log("\nAbbruch vor Versand (SMTP-Preflight)."); return; }
 
+  const campaignLabel = process.env.REVENUE_CAMPAIGN;
   const report = await sendApprovedBatch({
     storage,
     accounts: loadAccounts(), // real CRM
     batchSize: BATCH_SIZE,
     bcc: BCC, // explicit → BCC applies at any batch size ("" disables)
+    ...(campaignLabel ? { campaignLabel } : {}),
     provider: getProvider(),
     clock: () => new Date().toISOString(),
   });
