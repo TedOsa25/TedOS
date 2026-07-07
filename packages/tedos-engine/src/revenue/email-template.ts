@@ -23,8 +23,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { BANNER_DATA_URI, SIGNATURE_ICON_DATA } from "./email-assets-embedded.js";
+import { activeBrandProfile } from "./brand-profile.js";
 
-const WEBSITE_URL = process.env.WEBSITE_URL ?? "https://heycarbo.com";
+const WEBSITE_URL = process.env.WEBSITE_URL ?? activeBrandProfile().identity.websiteUrl;
 
 /**
  * Public CDN (jsDelivr → GitHub) hosting banner + signature icons. Used by default
@@ -32,7 +33,7 @@ const WEBSITE_URL = process.env.WEBSITE_URL ?? "https://heycarbo.com";
  * embedded base64 (email-assets-embedded.ts) stays as an offline fallback, and
  * both can be overridden via REVENUE_EMAIL_BANNER_URL / REVENUE_SIGNATURE_ICON_BASE_URL.
  */
-const HOSTED_ASSET_BASE = "https://cdn.jsdelivr.net/gh/TedOsa25/heycarbo-email-assets@master";
+const HOSTED_ASSET_BASE = process.env.REVENUE_ASSET_BASE ?? activeBrandProfile().assets.hostedAssetBase;
 
 /** Force the embedded base64 assets instead of hosted URLs (offline/testing). */
 const EMBED_ASSETS = process.env.REVENUE_ASSETS_EMBED === "1" || !HOSTED_ASSET_BASE;
@@ -66,14 +67,14 @@ export const EMAIL_ASSETS = {
   /** Whether the banner is a hosted URL (true) or the embedded data: URI (false). */
   bannerHosted: /^https?:/i.test(bannerSrc()),
   /** Global Calendly link — the secondary CTA target (all emails share it). */
-  calendlyUrl: process.env.CALENDLY_URL ?? process.env.REVENUE_CALENDLY_URL ?? "https://calendly.com/ted-heycarbo/30min",
+  calendlyUrl: process.env.CALENDLY_URL ?? process.env.REVENUE_CALENDLY_URL ?? activeBrandProfile().urls.calendlyUrl,
   /** 14-day trial landing — the PRIMARY CTA button target. */
-  trialUrl: process.env.REVENUE_TRIAL_URL ?? `${WEBSITE_URL}/trial`,
+  trialUrl: process.env.REVENUE_TRIAL_URL ?? activeBrandProfile().urls.trialUrl,
   /** Legal footer links — dynamic via config (never a relative path). */
-  imprintUrl: process.env.REVENUE_IMPRINT_URL ?? `${WEBSITE_URL}/impressum`,
-  privacyUrl: process.env.REVENUE_PRIVACY_URL ?? `${WEBSITE_URL}/datenschutz`,
+  imprintUrl: process.env.REVENUE_IMPRINT_URL ?? activeBrandProfile().urls.imprintUrl,
+  privacyUrl: process.env.REVENUE_PRIVACY_URL ?? activeBrandProfile().urls.privacyUrl,
   /** Base for the per-lead unsubscribe link: `${base}/${token}`. */
-  unsubscribeBase: process.env.REVENUE_UNSUBSCRIBE_BASE ?? `${WEBSITE_URL}/unsubscribe`,
+  unsubscribeBase: process.env.REVENUE_UNSUBSCRIBE_BASE ?? activeBrandProfile().urls.unsubscribeBase,
 } as const;
 
 /** The central banner as a referenced asset (for the Revenue Center preview). */
@@ -102,19 +103,13 @@ function bannerSrc(): string {
 
 // ── Signature ───────────────────────────────────────────────────────────────
 
-const FALLBACK_SIGNATURE =
-  `<table cellpadding="0" cellspacing="0" style="margin-top:8px"><tr><td style="font-family:${FONT};font-size:14px;color:${BRAND.text}">` +
-  `<strong>Ted Osammor</strong><br>Co-Founder · HeyCarbo<br>` +
-  `<a href="${WEBSITE_URL}" style="color:${BRAND.turquoise}">heycarbo.com</a></td></tr></table>`;
-
 let cachedSignature: string | null = null;
 
-/** Signature file candidates, in priority order (env → drop-in → legacy). */
+/** Signature file candidates, in priority order (env → brand profile paths). */
 function signatureCandidates(): string[] {
   return [
     process.env.REVENUE_SIGNATURE_PATH,
-    resolve(process.cwd(), "../../../Sales/crm-heycarbo/assets/signature.html"),
-    resolve(process.cwd(), "../../../Sales/heycarbo_signature_FINAL.html"),
+    ...activeBrandProfile().assets.signaturePaths.map((p) => resolve(process.cwd(), p)),
   ].filter((p): p is string => Boolean(p));
 }
 
@@ -131,7 +126,7 @@ function rawSignature(): string {
       /* try next candidate */
     }
   }
-  cachedSignature = FALLBACK_SIGNATURE;
+  cachedSignature = activeBrandProfile().assets.fallbackSignatureHtml;
   return cachedSignature;
 }
 
@@ -187,7 +182,7 @@ export interface EmailParts {
 
 /** Stable, per-lead unsubscribe token (deterministic — same lead → same token). */
 export function unsubscribeToken(accountId: string): string {
-  const secret = process.env.REVENUE_UNSUBSCRIBE_SECRET ?? "heycarbo-unsub";
+  const secret = process.env.REVENUE_UNSUBSCRIBE_SECRET ?? activeBrandProfile().identity.unsubscribeSecret;
   return createHash("sha256").update(`${accountId}:${secret}`).digest("hex").slice(0, 32);
 }
 
@@ -219,11 +214,10 @@ export function legalFooter(parts: { imprintUrl?: string; privacyUrl?: string; u
     `<div style="border-top:1px solid ${FOOTER_LINE};height:1px;line-height:1px;font-size:1px;">&nbsp;</div>` +
     `<div style="padding-top:20px;${base}">` +
     `<p style="margin:0 0 12px 0;padding:0;${base}">` +
-    `Sie erhalten diese E-Mail, weil wir davon ausgehen, dass unsere Lösung für Ihr Unternehmen im Zusammenhang mit ` +
-    `CO₂-Bilanzierung, Product Carbon Footprints oder Lieferkettenanforderungen relevant sein könnte.` +
+    activeBrandProfile().footer.relevanceSentence +
     `</p>` +
     `<p style="margin:0 0 16px 0;padding:0;${base}">` +
-    `Falls Sie künftig keine Informationen mehr von HeyCarbo erhalten möchten, können Sie sich jederzeit ` +
+    `Falls Sie künftig keine Informationen mehr von ${activeBrandProfile().productName} erhalten möchten, können Sie sich jederzeit ` +
     `<a href="${unsubscribe}" style="${link}">mit einem Klick abmelden</a> oder einfach auf diese E-Mail mit „Abmelden" antworten.` +
     `</p>` +
     `<p style="margin:0;padding:0;${base}">` +
@@ -296,7 +290,7 @@ function bannerBlock(): string {
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>` +
     `<td style="padding:26px 0 0 0;">` +
     `<a href="${WEBSITE_URL}" style="text-decoration:none;">` +
-    `<img src="${bannerSrc()}" width="600" alt="HeyCarbo — Carbon. Made. Simple." ` +
+    `<img src="${bannerSrc()}" width="600" alt="${activeBrandProfile().identity.bannerAlt}" ` +
     `style="display:block;width:100%;max-width:600px;height:auto;border:0;border-radius:${BRAND.radius}px;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;">` +
     `</a></td></tr></table>`
   );
@@ -319,7 +313,7 @@ export function renderEmail(p: EmailParts): string {
     `<meta http-equiv="X-UA-Compatible" content="IE=edge">` +
     `<meta name="color-scheme" content="light">` +
     `<!--[if mso]><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->` +
-    `<title>HeyCarbo</title>` +
+    `<title>${activeBrandProfile().identity.emailTitle}</title>` +
     `<style type="text/css">` +
     `body{margin:0;padding:0;background:${BRAND.bg};-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}` +
     `table{border-collapse:collapse;}` +

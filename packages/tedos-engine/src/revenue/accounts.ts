@@ -8,6 +8,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { activeBrandProfile } from "./brand-profile.js";
 
 /** The raw lead shape as stored in crm-heycarbo/leads.js (subset we use). */
 export interface RawLead {
@@ -106,6 +107,11 @@ function revenueScoreOf(l: RawLead): number {
   return clamp100(Math.min(100, (Math.log10(emp + 1) / Math.log10(5000)) * 100));
 }
 
+/** Read a raw-lead field by name (the product-specific pain field is profile-driven). */
+function rawField(l: RawLead, name: string): string[] | string | undefined {
+  return (l as unknown as Record<string, unknown>)[name] as string[] | string | undefined;
+}
+
 /** Normalize + re-score one raw lead. */
 export function normalize(l: RawLead, index: number): Account {
   const fitScore = clamp100(typeof l.score === "number" ? (l.score <= 1 ? l.score * 100 : l.score) : 50);
@@ -113,7 +119,7 @@ export function normalize(l: RawLead, index: number): Account {
   const buyingIntent = buyingIntentOf(l);
   // Priority composite — revenue first, then ICP fit, then buying intent (spec order).
   const priority = Math.round(revenueScore * 0.45 + fitScore * 0.35 + buyingIntent * 0.2);
-  const pains = asArray(l.heycarbo_pain_points);
+  const pains = asArray(rawField(l, activeBrandProfile().data.painField));
   return {
     id: l.id ?? `acct-${index + 1}`,
     company: (l.name ?? "").trim() || `Account ${index + 1}`,
@@ -154,7 +160,7 @@ export function parseLeads(text: string): Account[] {
 
 /** Default path to the real Sales CRM accounts, relative to the engine package. */
 export function defaultAccountsPath(): string {
-  return process.env.REVENUE_ACCOUNTS_PATH ?? resolve(process.cwd(), "../../../Sales/crm-heycarbo/leads.js");
+  return process.env.REVENUE_ACCOUNTS_PATH ?? resolve(process.cwd(), activeBrandProfile().data.dataPath);
 }
 
 /**

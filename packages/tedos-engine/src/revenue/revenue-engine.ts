@@ -13,8 +13,9 @@ import type { Storage } from "./../storage.js";
 import { checkContent } from "./../brand-guardian.js";
 import { DistributionQueue, type DistributionJobInput } from "./../distribution-queue.js";
 import { type Account, loadAccounts, prioritize } from "./accounts.js";
+import { activeBrandProfile } from "./brand-profile.js";
 import { EMAIL_ASSETS, EMAIL_BANNER, renderEmail, unsubscribeToken, unsubscribeUrl } from "./email-template.js";
-import { VARIANTS, VARIANT_LABEL, buildCopy, DEFAULT_VARIANT, germanizePain, namedOems, type Variant } from "./email-copy.js";
+import { VARIANTS, VARIANT_LABEL, DEFAULT_VARIANT, namedOems, type Variant } from "./email-copy.js";
 
 /** A referenced banner asset (the central email banner). */
 export interface BannerRef {
@@ -24,28 +25,12 @@ export interface BannerRef {
   industrySpecific: boolean;
 }
 
-/** Campaign types, chosen from the account's real relevance/pain signals. */
-export type CampaignType =
-  | "supplier-management" | "scope-3" | "pcf" | "csrd"
-  | "catena-x" | "esg" | "supplier-data" | "document-management";
+/** Campaign key, chosen per brand from the account's real signals (profile-driven). */
+export type CampaignType = string;
 
-/** A relevance field counts as a signal when it's present and not "low/none". */
-const relevant = (v: string | undefined): boolean => !!v && /high|hoch|mittel|medium|yes|ja|true|relevant/i.test(v);
-
-/** Choose the campaign from the account's real signals (deterministic). */
+/** Choose the campaign from the account's real signals (deterministic, per active brand). */
 export function selectCampaign(a: Account): CampaignType {
-  // Structured relevance fields first…
-  if (relevant(a.catenaXRelevance)) return "catena-x";
-  if (relevant(a.pcfRelevance)) return "pcf";
-  if (relevant(a.csrdRelevance)) return "csrd";
-  // …then keywords in the free-text pain/pressure signals.
-  const hay = `${a.supplierPressure ?? ""} ${a.painPoints.join(" ")}`.toLowerCase();
-  if (/catena|pact|wbcsd/.test(hay)) return "catena-x";
-  if (/pcf|14067|product carbon|cradle/.test(hay)) return "pcf";
-  if (/csrd|esrs|berichtspflicht/.test(hay)) return "csrd";
-  if (/lieferant|supplier|supply chain|scope ?3/.test(hay)) return "supplier-management";
-  if (/ecovadis|cdp|esg|questionnaire|fragebogen/.test(hay)) return "esg";
-  return "scope-3";
+  return activeBrandProfile().copy.selectCampaign(a);
 }
 
 /** Result of the quality gates + the numeric scores shown in the Revenue Center. */
@@ -172,21 +157,23 @@ function personalizationScore(a: Account, intro: string): number {
   return Math.min(100, p);
 }
 
-/**
- * The primary CTA is fixed for every email: a turquoise "14 Tage kostenlos
- * testen" button pointing at the trial. Booking a demo is offered separately as
- * the secondary link (Calendly) rendered by the central template.
- */
-const PRIMARY_CTA = { text: "14 Tage kostenlos testen", url: EMAIL_ASSETS.trialUrl } as const;
-
 /** Build all artifacts for one account from its REAL data, in the given copy variant. */
 export function buildOpportunity(a: Account, clock: () => string, variant: Variant = DEFAULT_VARIANT): RevenueOpportunity {
+  const brand = activeBrandProfile();
   const campaign = selectCampaign(a);
   const banner: BannerRef = { ...EMAIL_BANNER };
 
-  // The ONLY per-account text: short, conversion-first copy in the chosen tone.
-  const copy = buildCopy(a, variant);
-  const cta = PRIMARY_CTA;
+  // The ONLY per-account text: short, conversion-first copy in the chosen tone,
+  // assembled from the active brand profile (opener + body + closing).
+  const copy = {
+    greeting: "Guten Tag,",
+    intro: brand.copy.intro(a),
+    value: brand.copy.emailBody.value[variant],
+    closing: brand.copy.emailBody.closing[variant],
+  };
+  // The primary CTA is fixed for every email: the brand's label on a turquoise
+  // button pointing at the trial. The demo (Calendly) is the secondary link.
+  const cta = { text: brand.copy.ctaText, url: EMAIL_ASSETS.trialUrl };
 
   // Central layout appended automatically:
   //   text · banner · "14 Tage kostenlos testen" button · demo link · signature · legal footer.
@@ -197,18 +184,14 @@ export function buildOpportunity(a: Account, clock: () => string, variant: Varia
     ctaText: cta.text, ctaUrl: cta.url, unsubscribeUrl: unsubUrl,
   });
 
-  const subjects = [
-    `${a.company}: CO₂-Bilanz & PCF in Minuten`,
-    `${a.industry} & Scope 3 — kurze Frage`,
-    `PCF-Daten für ${a.company}?`,
-  ];
-  const previewText = "CO₂-Bilanzen & Product Carbon Footprints in Minuten – auditfähig, für den Mittelstand.";
-  const linkedin = `Guten Tag, ich verfolge, wie ${a.industry}-Unternehmen wie ${a.company} das Thema CO₂-/Scope-3-Daten angehen. Falls das bei Ihnen gerade Thema ist, tausche ich mich gern kurz aus — ganz unverbindlich.`;
-  const followUp1 = `Guten Tag, ich wollte kurz nachfassen — falls CO₂-Bilanzierung und PCF-Daten bei ${a.company} gerade Thema sind, zeige ich in 15 Minuten, wie HeyCarbo den Aufwand senkt. Passt diese Woche?`;
-  const followUp2 = `Guten Tag, ich lasse es für heute dabei. Wenn ${campaign}-Themen für ${a.company} später relevant werden, melden Sie sich gern: ${EMAIL_ASSETS.calendlyUrl}`;
-  const painShort = a.painPoints[0] ? germanizePain(a.painPoints[0]) : `${campaign}-Anforderungen der Kunden.`;
+  const subjects = brand.copy.subjects(a);
+  const previewText = brand.copy.previewText;
+  const linkedin = brand.copy.linkedin(a);
+  const followUp1 = brand.copy.followUp1(a);
+  const followUp2 = brand.copy.followUp2(a, { campaign, calendlyUrl: EMAIL_ASSETS.calendlyUrl });
+  const painShort = a.painPoints[0] ? brand.copy.germanizePain(a.painPoints[0]) : brand.copy.painFallback({ campaign });
   const summary =
-    `Warum HeyCarbo passt: ${a.industry}, Fit ${a.fitScore}/100, Revenue-Potenzial ${a.revenueScore}/100. ` +
+    `${brand.copy.summaryLead}: ${a.industry}, Fit ${a.fitScore}/100, Revenue-Potenzial ${a.revenueScore}/100. ` +
     `Größter vermuteter Pain: ${painShort} Copy-Variante „${variant}" (${VARIANT_LABEL[variant]}).`;
 
   // Quality gates run on the PERSONALIZED copy only — not the fixed central
@@ -297,7 +280,7 @@ export class RevenueEngine {
         emailsCreated: 0, followUpsCreated: 0, linkedinCreated: 0, bannersSelected: 0,
         campaignsPrepared: 0, readyToSend: 0, businessImpactScore: 0, bannerGaps: [],
         topOpportunities: [],
-        missingData: `No real accounts loaded — set REVENUE_ACCOUNTS_PATH to Sales/crm-heycarbo/leads.js (never fabricated).`,
+        missingData: `No real accounts loaded — set REVENUE_ACCOUNTS_PATH to ${activeBrandProfile().data.dataPath} (never fabricated).`,
       };
     }
 
@@ -322,7 +305,7 @@ export class RevenueEngine {
   /** Queue the sendable artifacts, credential-gated, as pending-approval. */
   private enqueue(o: RevenueOpportunity): void {
     const base = { campaign: `${o.campaign}-${o.industry}`.toLowerCase().replace(/\s+/g, "-"), source: "sales" as const };
-    const subj = o.subjects[0] ?? `${o.company}: CO₂-Daten`;
+    const subj = o.subjects[0] ?? activeBrandProfile().copy.queueSubjectFallback(o.company);
     const to = o.email ? { recipient: o.email } : {};
     const jobs: DistributionJobInput[] = [
       { id: `rev-${o.accountId}-email`, channel: "email", title: `E-Mail · ${o.company}`, body: o.emailHtml, subject: subj, cta: "Demo buchen", ...to, ...base },

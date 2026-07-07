@@ -178,28 +178,47 @@ export function researchIntro(a: Account): string {
   return `Bei unserer Recherche ist uns aufgefallen, dass ${a.company} ${who}. ${s2}`;
 }
 
-/** Build the four personalized paragraphs for one account in the requested tone. */
+/** HeyCarbo email body paragraph per tone (A–E). Referenced by the HeyCarbo profile. */
+export const HEYCARBO_VALUE: Record<Variant, string> = {
+  A: "Mit HeyCarbo erstellen Sie CO₂-Bilanzen (Scope 1–3) und Product Carbon Footprints in Minuten – auditfähig, für den Mittelstand.",
+  B: "Viele Zulieferer lösen das heute noch in Excel. Mit HeyCarbo erstellen Sie Scope-1-, Scope-2- und Scope-3-Bilanzen sowie Product Carbon Footprints in wenigen Minuten – auditfähig und für den industriellen Mittelstand gedacht.",
+  C: "Mit HeyCarbo schließen Sie genau diese Lücke: Scope-1- bis Scope-3-Bilanzen und Product Carbon Footprints in Minuten – auditfähig, ohne Beraterheer.",
+  D: "Statt Wochen in Excel: Mit HeyCarbo erstellen Sie Scope-1- bis Scope-3-Bilanzen und Product Carbon Footprints in Minuten – auditfähig und ohne externe Berater. Das spart Ihrem Team spürbar Zeit.",
+  E: "Mit HeyCarbo erstellen Sie CO₂-Bilanzen (Scope 1–3) und Product Carbon Footprints in wenigen Minuten – auditfähig und für mittelständische Industrie gemacht.",
+};
+
+/** HeyCarbo closing ask per tone (A–E). Referenced by the HeyCarbo profile. */
+export const HEYCARBO_CLOSING: Record<Variant, string> = {
+  A: "Hätten Sie nächste Woche 15 Minuten für einen kurzen Austausch?",
+  B: "Wenn das Thema bei Ihnen gerade relevant ist, zeige ich Ihnen in 15 Minuten, worauf es bei auditfähigen PCF-Daten wirklich ankommt. Hätten Sie nächste Woche kurz Zeit?",
+  C: "Hätten Sie nächste Woche 15 Minuten? Ich zeige Ihnen, wie andere Zulieferer diese Anforderung heute ohne Mehraufwand erfüllen.",
+  D: "Hätten Sie nächste Woche 15 Minuten? Ich zeige Ihnen gern, wie viel Aufwand andere Zulieferer damit heute einsparen.",
+  E: "Wäre das für Sie gerade ein Thema? Über einen kurzen Austausch nächste Woche – 15 Minuten – würde ich mich freuen.",
+};
+
+/** A relevance field counts as a signal when present and not "low/none". */
+const relevant = (v: string | undefined): boolean => !!v && /high|hoch|mittel|medium|yes|ja|true|relevant/i.test(v);
+
+/** HeyCarbo campaign selection from the account's real carbon signals (deterministic). */
+export function selectCampaignHeycarbo(a: Account): string {
+  if (relevant(a.catenaXRelevance)) return "catena-x";
+  if (relevant(a.pcfRelevance)) return "pcf";
+  if (relevant(a.csrdRelevance)) return "csrd";
+  const hay = `${a.supplierPressure ?? ""} ${a.painPoints.join(" ")}`.toLowerCase();
+  if (/catena|pact|wbcsd/.test(hay)) return "catena-x";
+  if (/pcf|14067|product carbon|cradle/.test(hay)) return "pcf";
+  if (/csrd|esrs|berichtspflicht/.test(hay)) return "csrd";
+  if (/lieferant|supplier|supply chain|scope ?3/.test(hay)) return "supplier-management";
+  if (/ecovadis|cdp|esg|questionnaire|fragebogen/.test(hay)) return "esg";
+  return "scope-3";
+}
+
+/** Build the four personalized paragraphs for one account in the requested tone (HeyCarbo). */
 export function buildCopy(a: Account, v: Variant): EmailCopy {
-  const value: Record<Variant, string> = {
-    A: "Mit HeyCarbo erstellen Sie CO₂-Bilanzen (Scope 1–3) und Product Carbon Footprints in Minuten – auditfähig, für den Mittelstand.",
-    B: "Viele Zulieferer lösen das heute noch in Excel. Mit HeyCarbo erstellen Sie Scope-1-, Scope-2- und Scope-3-Bilanzen sowie Product Carbon Footprints in wenigen Minuten – auditfähig und für den industriellen Mittelstand gedacht.",
-    C: "Mit HeyCarbo schließen Sie genau diese Lücke: Scope-1- bis Scope-3-Bilanzen und Product Carbon Footprints in Minuten – auditfähig, ohne Beraterheer.",
-    D: "Statt Wochen in Excel: Mit HeyCarbo erstellen Sie Scope-1- bis Scope-3-Bilanzen und Product Carbon Footprints in Minuten – auditfähig und ohne externe Berater. Das spart Ihrem Team spürbar Zeit.",
-    E: "Mit HeyCarbo erstellen Sie CO₂-Bilanzen (Scope 1–3) und Product Carbon Footprints in wenigen Minuten – auditfähig und für mittelständische Industrie gemacht.",
-  };
-
-  const closing: Record<Variant, string> = {
-    A: "Hätten Sie nächste Woche 15 Minuten für einen kurzen Austausch?",
-    B: "Wenn das Thema bei Ihnen gerade relevant ist, zeige ich Ihnen in 15 Minuten, worauf es bei auditfähigen PCF-Daten wirklich ankommt. Hätten Sie nächste Woche kurz Zeit?",
-    C: "Hätten Sie nächste Woche 15 Minuten? Ich zeige Ihnen, wie andere Zulieferer diese Anforderung heute ohne Mehraufwand erfüllen.",
-    D: "Hätten Sie nächste Woche 15 Minuten? Ich zeige Ihnen gern, wie viel Aufwand andere Zulieferer damit heute einsparen.",
-    E: "Wäre das für Sie gerade ein Thema? Über einen kurzen Austausch nächste Woche – 15 Minuten – würde ich mich freuen.",
-  };
-
   return {
     greeting: GREETING,
     intro: researchIntro(a), // standard opener — identical across all variants
-    value: value[v],
-    closing: closing[v],
+    value: HEYCARBO_VALUE[v],
+    closing: HEYCARBO_CLOSING[v],
   };
 }

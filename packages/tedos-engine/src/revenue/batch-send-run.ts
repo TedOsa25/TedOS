@@ -16,12 +16,20 @@
 import { createHash } from "node:crypto";
 import { createStorage } from "./../storage.js";
 import { loadAccounts } from "./accounts.js";
+import { activeBrandProfile } from "./brand-profile.js";
 import { selectedProviderName, getProvider } from "./sending.js";
-import { sendApprovedBatch, loadLeadStatus, formatBatchReport } from "./batch-send.js";
+import { sendApprovedBatch, formatBatchReport } from "./batch-send.js";
+import { runPreflight, formatPreflight } from "./preflight.js";
+import { writeReportFile } from "./report-file.js";
+
+/** Sender identity used for the DNS/domain preflight (brand-profile driven, env-overridable). */
+const SENDER_EMAIL = process.env.REVENUE_FROM_EMAIL ?? process.env.SMTP_USER ?? activeBrandProfile().identity.senderEmail;
 
 const BATCH_SIZE = Number(process.env.REVENUE_BATCH_SIZE ?? 20);
-// BCC monitoring copy: default ted@heycarbo.com; REVENUE_BCC=off disables.
-const BCC = (process.env.REVENUE_BCC ?? "ted@heycarbo.com").toLowerCase() === "off" ? "" : (process.env.REVENUE_BCC ?? "ted@heycarbo.com");
+// BCC monitoring copy: brand-profile default (profile.identity.bcc); REVENUE_BCC=off disables.
+const BCC = (process.env.REVENUE_BCC ?? activeBrandProfile().identity.bcc).toLowerCase() === "off"
+  ? ""
+  : (process.env.REVENUE_BCC ?? activeBrandProfile().identity.bcc);
 
 /** Masked fingerprint of a secret: length + sha256 prefix. Reveals nothing usable. */
 function fingerprint(v: string | undefined): string {
@@ -41,36 +49,6 @@ function echoSmtpEnv(): void {
   console.log("────────────────────────────────────────────────");
 }
 
-async function preflightSmtp(): Promise<boolean> {
-  if (selectedProviderName() !== "smtp" || process.env.REVENUE_SEND_ENABLED !== "1") return true;
-  echoSmtpEnv();
-  const missing = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"].filter((k) => !process.env[k]);
-  if (missing.length) { console.log(`⚠ SMTP-Konfig unvollständig: ${missing.join(", ")} fehlt.`); return false; }
-  try {
-    const mod = "nodemailer";
-    const nodemailer = (await import(mod).catch(() => null)) as any;
-    if (!nodemailer) { console.log("⚠ nodemailer nicht installiert."); return false; }
-    // Mirror the proven send:test transport exactly (removes any transport doubt).
-    const secure = process.env.SMTP_SECURE === "1";
-    const t = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT ?? (secure ? 465 : 587)),
-      secure,
-      requireTLS: !secure,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      pool: false, maxConnections: 1, maxMessages: 1,
-      connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 20000,
-    });
-    await t.verify(); t.close();
-    console.log(`✅ SMTP-Verbindung OK (${process.env.SMTP_HOST}:${process.env.SMTP_PORT}).`);
-    return true;
-  } catch (e) {
-    console.log(`⛔ SMTP-Verbindung/Login FEHLGESCHLAGEN: ${(e as Error).message}`);
-    console.log("   → Passwort korrekt? SMTP_USER = volle Adresse? Bei 465-Problemen: SMTP_PORT=587 ohne SMTP_SECURE.");
-    return false;
-  }
-}
-
 async function main(): Promise<void> {
   const storage = createStorage();
   if (!process.env.TEDOS_STORAGE_PATH) {
@@ -79,23 +57,54 @@ async function main(): Promise<void> {
     return;
   }
 
-  const approved = Object.values(loadLeadStatus(storage)).filter((r) => r.status === "approved").length;
-  console.log(`Store: ${process.env.TEDOS_STORAGE_PATH} · approved Leads: ${approved} · batchSize: ${BATCH_SIZE} · BCC: ${BCC || "aus"} · Provider: ${selectedProviderName()} · Master-Switch: ${process.env.REVENUE_SEND_ENABLED === "1" ? "ARMED" : "OFF (dry-run)"}\n`);
-  if (approved === 0) { console.log("Keine approveten Leads — in der Revenue-Center-UI zuerst freigeben. (Nichts gesendet.)"); return; }
-
-  if (!(await preflightSmtp())) { console.log("\nAbbruch vor Versand (SMTP-Preflight)."); return; }
-
+  const accounts = loadAccounts(); // real CRM
+  const armed = process.env.REVENUE_SEND_ENABLED === "1";
   const campaignLabel = process.env.REVENUE_CAMPAIGN;
+  console.log(`Store: ${process.env.TEDOS_STORAGE_PATH} · batchSize: ${BATCH_SIZE} · BCC: ${BCC || "aus"} · Provider: ${selectedProviderName()} · Master-Switch: ${armed ? "ARMED" : "OFF (dry-run)"}\n`);
+
+  // Show the exact SMTP inputs (masked) before the connection verify runs.
+  if (selectedProviderName() === "smtp" && armed) echoSmtpEnv();
+
+  // === Pre-send preflight (hard gate) — all eight checks must pass ===========
+  const pf = await runPreflight({
+    storage,
+    batchSize: BATCH_SIZE,
+    senderEmail: SENDER_EMAIL,
+    provider: selectedProviderName(),
+    armed,
+    accounts,
+    ...(campaignLabel ? { campaignLabel } : {}),
+    clock: () => new Date().toISOString(),
+  });
+  console.log(formatPreflight(pf));
+  if (!pf.ok) {
+    const errPath = writeReportFile(pf.reportStem, "error.txt", formatPreflight(pf) + "\n");
+    console.log(`\n⛔ Abbruch: Preflight fehlgeschlagen — nichts gesendet.\n📄 Fehlerbericht: ${errPath}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // === Send ONLY the approved batch ==========================================
   const report = await sendApprovedBatch({
     storage,
-    accounts: loadAccounts(), // real CRM
+    accounts,
     batchSize: BATCH_SIZE,
     bcc: BCC, // explicit → BCC applies at any batch size ("" disables)
     ...(campaignLabel ? { campaignLabel } : {}),
     provider: getProvider(),
     clock: () => new Date().toISOString(),
   });
-  console.log("\n" + formatBatchReport(report));
+  const text = formatBatchReport(report);
+  console.log("\n" + text);
+
+  // === Durable per-batch report files (JSON + text) ==========================
+  try {
+    const jsonPath = writeReportFile(pf.reportStem, "report.json", JSON.stringify({ preflight: pf, report }, null, 2));
+    writeReportFile(pf.reportStem, "report.txt", formatPreflight(pf) + "\n\n" + text + "\n");
+    console.log(`\n📄 Report: ${jsonPath}`);
+  } catch (e) {
+    console.log(`⚠ Report-Datei konnte nicht geschrieben werden: ${(e as Error).message}`);
+  }
   console.log(report.sent > 0 ? `\n✅ ${report.sent} gesendet. BCC ging blind an ${report.bccAddress}.` : "\nℹ Nichts gesendet (Master-Switch aus oder Provider nicht konfiguriert).");
 }
 

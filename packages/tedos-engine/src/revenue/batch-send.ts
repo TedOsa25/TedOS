@@ -13,8 +13,8 @@
 //     by default, so a fresh store sends to nobody.
 //   • Hard cap: batch 1 can never exceed FIRST_BATCH_HARD_CAP (20), regardless
 //     of the requested batchSize. The loop stops after exactly that many.
-//   • BCC to ted@heycarbo.com is applied to batch 1 ONLY (blind — hidden from
-//     the recipient). Batches 2+ carry no BCC by default.
+//   • The brand's monitoring BCC (profile.identity.bcc) is applied to batch 1
+//     ONLY (blind — hidden from the recipient). Batches 2+ carry no BCC by default.
 //   • After the batch the master switch is auto-disarmed in-process
 //     (REVENUE_SEND_ENABLED=0) so no second wave can start implicitly.
 //   • dryRun:true builds + reports everything but dispatches nothing real.
@@ -22,6 +22,7 @@
 import type { Storage } from "./../storage.js";
 import { type Account, loadAccounts, prioritize } from "./accounts.js";
 import { buildOpportunity } from "./revenue-engine.js";
+import { activeBrandProfile } from "./brand-profile.js";
 import { unsubscribeToken, unsubscribeUrl } from "./email-template.js";
 import { type Variant, DEFAULT_VARIANT } from "./email-copy.js";
 import {
@@ -29,17 +30,18 @@ import {
   type EmailProvider, type OutboundEmail, type ProviderName, type SendStatus,
 } from "./sending.js";
 
-/** BCC target for the first productive batch only (hidden from the recipient). */
-export const BCC_FIRST_BATCH = process.env.REVENUE_BCC_FIRST_BATCH ?? "ted@heycarbo.com";
+/** BCC target for the first productive batch only (hidden from the recipient).
+ *  Fully brand-profile driven (env `REVENUE_BCC_FIRST_BATCH` still overrides). */
+export const BCC_FIRST_BATCH = process.env.REVENUE_BCC_FIRST_BATCH ?? activeBrandProfile().identity.bcc;
 /** Absolute ceiling for batch 1 — the loop can never send more than this. */
 export const FIRST_BATCH_HARD_CAP = 20;
 /** Default batch size. */
 export const DEFAULT_BATCH_SIZE = 20;
 
-/** Sender identity (env-overridable, defaults to the HeyCarbo owner). */
+/** Sender identity (env-overridable, defaults to the active brand's owner). */
 const SENDER = {
-  email: process.env.REVENUE_FROM_EMAIL ?? "ted@heycarbo.com",
-  name: process.env.REVENUE_FROM_NAME ?? "Ted Osammor",
+  email: process.env.REVENUE_FROM_EMAIL ?? activeBrandProfile().identity.senderEmail,
+  name: process.env.REVENUE_FROM_NAME ?? activeBrandProfile().identity.senderName,
 } as const;
 
 /** Full lead lifecycle shown in the Revenue Center. */
@@ -260,6 +262,54 @@ export function leadReviewList(
   });
 }
 
+/** Result of narrowing the CRM to the actually-sendable batch. */
+export interface SendableSelection {
+  /** Final list to dispatch: priority-ordered, capped to `limit`. */
+  batch: Account[];
+  approved: number;      // raw count with status "approved"
+  withEmail: number;     // approved AND carrying a deliverable address
+  afterDedupe: number;   // withEmail AND a unique (lower-cased) address
+  dupDropped: number;    // duplicate recipients removed
+  noEmailDropped: number;// approved leads without an address removed
+  blockedUnsub: number;  // opted-out leads present in the CRM (defence-in-depth)
+}
+
+/**
+ * Narrow the CRM accounts to the sendable batch, applying — in order — the
+ * approved-only filter, the deliverable-address requirement, duplicate-recipient
+ * exclusion, and the batch-size cap. Opt-out is enforced upstream (an
+ * unsubscribed lead can never be "approved"); `blockedUnsub` surfaces the count
+ * for transparency. Pure: no IO, no dispatch. Shared by the preflight and the
+ * actual send so both operate on the EXACT same set (no drift).
+ */
+export function selectSendable(
+  accounts: Account[],
+  statusMap: Record<string, LeadRecord>,
+  limit: number,
+): SendableSelection {
+  const ranked = prioritize(accounts);
+  const blockedUnsub = ranked.filter((a) => statusMap[a.id]?.status === "unsubscribed").length;
+  const approvedList = ranked.filter((a) => statusMap[a.id]?.status === "approved");
+  const withEmailList = approvedList.filter((a) => (a.email ?? "").trim() !== "");
+  const seen = new Set<string>();
+  let dupDropped = 0;
+  const deduped = withEmailList.filter((a) => {
+    const key = (a.email as string).trim().toLowerCase();
+    if (seen.has(key)) { dupDropped += 1; return false; }
+    seen.add(key);
+    return true;
+  });
+  return {
+    batch: deduped.slice(0, limit),
+    approved: approvedList.length,
+    withEmail: withEmailList.length,
+    afterDedupe: deduped.length,
+    dupDropped,
+    noEmailDropped: approvedList.length - withEmailList.length,
+    blockedUnsub,
+  };
+}
+
 export interface BatchSendOptions {
   storage: Storage;
   /** How many to send (default 20). Batch 1 is additionally capped at 20. */
@@ -329,16 +379,17 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
   if (!armed && !dryRun) notes.push("master switch OFF — every dispatch will be a dry-run 'skipped'");
   if (dryRun) notes.push("dryRun — nothing is dispatched to a real provider");
 
-  // Eligible = approved leads, in priority order, matched to a loaded account.
-  // Opt-out is enforced here: an unsubscribed lead can never be "approved", and
-  // is additionally filtered out as defence-in-depth.
-  const accounts = prioritize(opts.accounts ?? loadAccounts(opts.accountsPath));
-  const approved = accounts.filter((a) => statusMap[a.id]?.status === "approved" && statusMap[a.id]?.status !== undefined);
-  const blockedUnsub = accounts.filter((a) => statusMap[a.id]?.status === "unsubscribed").length;
-  if (blockedUnsub) notes.push(`${blockedUnsub} unsubscribed lead(s) blocked (opt-out)`);
+  // Eligible set via the shared selector: approved-only → deliverable address →
+  // duplicate-recipient exclusion → batch-size cap. Same function the preflight
+  // runs, so what preflight cleared is exactly what sends.
+  const accounts = opts.accounts ?? loadAccounts(opts.accountsPath);
+  const sel = selectSendable(accounts, statusMap, effectiveSize);
+  if (sel.blockedUnsub) notes.push(`${sel.blockedUnsub} unsubscribed lead(s) blocked (opt-out)`);
+  if (sel.noEmailDropped) notes.push(`${sel.noEmailDropped} approved lead(s) without a deliverable address excluded`);
+  if (sel.dupDropped) notes.push(`${sel.dupDropped} duplicate recipient(s) excluded`);
   if (accounts.length === 0) notes.push("no accounts loaded (real CRM file missing?) — nothing to send");
 
-  const batch = approved.slice(0, effectiveSize);
+  const batch = sel.batch;
   const results: BatchResultLine[] = [];
   const smtpStatus: Record<SendStatus, number> = { sent: 0, queued: 0, skipped: 0, error: 0 };
   const messageIds: string[] = [];
@@ -422,7 +473,7 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
     provider: provider.name,
     dryRun,
     armed,
-    approvedAvailable: approved.length,
+    approvedAvailable: sel.afterDedupe,
     attempted: batch.length,
     sent,
     skipped,
