@@ -1,0 +1,8 @@
+# Runtime state + batch artefacts — contain lead data (PII). Never commit.
+.revenue-state
+.revenue-state/
+.revenue-reports/
+
+# Local tooling
+node_modules/
+.playwright-mcp/
