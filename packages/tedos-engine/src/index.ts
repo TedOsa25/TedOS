@@ -19,6 +19,7 @@ import { ProjectRegistry } from "./project.js";
 import { ProjectRouter } from "./project-router.js";
 import { Scheduler } from "./scheduler.js";
 import { ExecutionTrace } from "./trace.js";
+import { OutcomeStore } from "./learning.js";
 
 /**
  * Two real projects TedOS can work on. Paths are placeholders and the
@@ -162,12 +163,21 @@ async function main(): Promise<void> {
   }
 
   // Execute each project, collect goal traces, and persist its goals.
+  // Learning (Sprint 6): every execution's outcome is also appended to the
+  // Storage layer via OutcomeStore. Pure data collection — no scoring, no
+  // analytics, no kernel changes; the store just records what happened.
+  const outcomes = new OutcomeStore(storage);
   const goals: GoalTrace[] = [];
   let executed = 0;
+  let outcomesAdded = 0;
   for (const [name, owner] of active) {
+    const startedAt = Date.now();
     const state = await new Scheduler(owner, policy, approvals).start();
+    const runtimeMs = Date.now() - startedAt;
     if (state) {
       executed += state.processed;
+      // Store the outcome of every goal this project just processed.
+      outcomesAdded += outcomes.recordRun(state.executions, runtimeMs).length;
       for (const execution of state.executions) {
         goals.push({
           ...execution,
@@ -201,6 +211,11 @@ async function main(): Promise<void> {
       `  tick ${run.tick}: discovered ${run.discovered}, submitted ${run.submitted}, executed ${run.executed}`,
     );
   }
+
+  console.log(
+    `\nLearning — stored execution outcomes: ${outcomes.all().length} total ` +
+      `(this run added ${outcomesAdded}).`,
+  );
 
   const trace = new ExecutionTrace();
   trace.record(thisRun);
