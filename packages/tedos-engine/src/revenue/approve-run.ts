@@ -6,6 +6,8 @@
 //   npm run approve            # preview only
 //   npm run approve -- --apply # actually set the 50 to "approved"
 
+import { readFileSync } from "node:fs";
+
 import { createStorage } from "./../storage.js";
 import { loadAccounts } from "./accounts.js";
 import { loadLeadStatus, approveLeads } from "./batch-send.js";
@@ -13,6 +15,13 @@ import { selectForApproval, isPersonalized } from "./approve-select.js";
 
 const N = Number(process.env.REVENUE_APPROVE_N ?? 20);
 const APPLY = process.argv.includes("--apply") || process.env.REVENUE_APPROVE_APPLY === "1";
+/**
+ * Optional whitelist: a CSV whose FIRST column holds lead ids (header skipped).
+ * Without it the runner ranks the whole CRM by fit — which surfaces machine
+ * builders and consumer brands. With it, a batch can be restricted to a
+ * qualified segment (e.g. the ICP export) while keeping the hardened filter.
+ */
+const IDS_FILE = process.env.REVENUE_APPROVE_IDS_FILE;
 
 function main(): void {
   if (!process.env.TEDOS_STORAGE_PATH) {
@@ -20,7 +29,17 @@ function main(): void {
     return;
   }
   const storage = createStorage();
-  const sel = selectForApproval(loadAccounts(), loadLeadStatus(storage), N);
+  let accounts = loadAccounts();
+  if (IDS_FILE) {
+    const ids = new Set(
+      readFileSync(IDS_FILE, "utf8").split("\n").slice(1)
+        .map((l) => l.split(";")[0]?.trim()).filter(Boolean),
+    );
+    const before = accounts.length;
+    accounts = accounts.filter((a) => ids.has(a.id));
+    console.log(`Whitelist: ${IDS_FILE} → ${ids.size} IDs · CRM ${before} → ${accounts.length} Kandidaten`);
+  }
+  const sel = selectForApproval(accounts, loadLeadStatus(storage), N);
 
   console.log(`Approval-Lauf (gehärteter Filter) · Ziel: ${N} · Modus: ${APPLY ? "APPLY" : "Vorschau"}`);
   console.log(`Eligible: ${sel.eligible} · personalisiert im Pick: ${sel.personalizedInPick}/${sel.pick.length}`);

@@ -95,6 +95,8 @@ export const HEYAUDIT_PROFILE: BrandProfile = {
     websiteUrl: WEBSITE,
     emailTitle: "HeyAudit",
     bannerAlt: "HeyAudit — Prüfungen. Digital. Revisionssicher.",
+    accent: "#14132B",
+    accentHover: "#0B0A1A",
     unsubscribeSecret: "heyaudit-unsub",
   },
   urls: {
@@ -107,11 +109,11 @@ export const HEYAUDIT_PROFILE: BrandProfile = {
   assets: {
     // NOTE: upload the HeyAudit banner + signature icons to this repo before real sends.
     hostedAssetBase: "https://cdn.jsdelivr.net/gh/TedOsa25/heyaudit-email-assets@master",
-    signaturePaths: ["../../../Sales/heyaudit_signature.html"],
+    signaturePaths: ["../../../Sales/crm-heyaudit/assets/signature.html"],
     fallbackSignatureHtml:
-      `<table cellpadding="0" cellspacing="0" style="margin-top:8px"><tr><td style="font-family:Inter,Arial,sans-serif;font-size:14px;color:#141b26">` +
-      `<strong>Ted Osammor</strong><br>Gründer · HeyAudit<br>` +
-      `<a href="${WEBSITE}" style="color:#2563EB">heyaudit.de</a></td></tr></table>`,
+      `<table cellpadding="0" cellspacing="0" style="margin-top:8px"><tr><td style="font-family:Inter,Arial,sans-serif;font-size:14px;color:#14132B">` +
+      `<strong>Ted Osammor</strong><br>Founder · HeyAudit<br>` +
+      `<a href="${WEBSITE}" style="color:#14132B">heyaudit.de</a></td></tr></table>`,
   },
   footer: {
     relevanceSentence:

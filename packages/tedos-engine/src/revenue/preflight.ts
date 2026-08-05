@@ -40,6 +40,8 @@ export interface PreflightEligibility {
   approved: number;
   withEmail: number;
   afterDedupe: number;
+  /** Approved leads dropped because an earlier batch already reached the address. */
+  contactedDropped: number;
   toSend: number;
   dupDropped: number;
   noEmailDropped: number;
@@ -77,10 +79,57 @@ export interface PreflightOptions {
   urls?: { label: string; url: string }[];
   /** Injectable URL fetcher (defaults to a real GET with redirect-follow). */
   urlFetch?: UrlFetcher;
+  /** Injectable MX resolver (defaults to the system resolver). */
+  mxResolve?: MxResolver;
 }
 
 /** Returns the final HTTP status of a URL (redirects followed). */
 export type UrlFetcher = (url: string) => Promise<{ status: number }>;
+
+/** Resolves a domain's MX records. Injectable so the check is testable offline. */
+export type MxResolver = (domain: string) => Promise<string[]>;
+
+/**
+ * A recipient domain without an MX record can never accept mail — every send to
+ * it is a guaranteed bounce, and guaranteed bounces are what pushed the campaign
+ * over the 3 % threshold. Non-blocking on purpose: one bad address must not stop
+ * the other nineteen, but it is named so it can be rejected before the next run.
+ */
+export async function recipientMxCheck(
+  emails: string[],
+  resolve: MxResolver,
+): Promise<PreflightCheck> {
+  const byDomain = new Map<string, string[]>();
+  for (const e of emails) {
+    const d = e.split("@")[1]?.toLowerCase();
+    if (d) byDomain.set(d, [...(byDomain.get(d) ?? []), e]);
+  }
+  const dead: string[] = [];
+  await Promise.all([...byDomain.keys()].map(async (d) => {
+    try {
+      const mx = await resolve(d);
+      if (!mx.length) dead.push(d);
+    } catch {
+      dead.push(d); // NXDOMAIN or resolver failure — treat as undeliverable
+    }
+  }));
+  const affected = dead.flatMap((d) => byDomain.get(d) ?? []);
+  return {
+    id: "dns-recipients",
+    label: "Empfänger-Domains mit MX",
+    ok: affected.length === 0,
+    blocking: false,
+    detail: affected.length === 0
+      ? `${byDomain.size} Domains geprüft · alle nehmen Mail an`
+      : `${affected.length} Empfänger auf ${dead.length} Domain(s) OHNE MX — sicherer Bounce: ${affected.slice(0, 8).join(", ")}`,
+  };
+}
+
+/** Real MX lookup via the system resolver. */
+export async function dnsMxResolver(domain: string): Promise<string[]> {
+  const { resolveMx } = await import("node:dns/promises");
+  return (await resolveMx(domain)).map((r) => r.exchange);
+}
 
 /** The four outbound landing pages a productive batch links to (active brand). */
 export function brandSendUrls(): { label: string; url: string }[] {
@@ -142,15 +191,41 @@ async function dnsChecks(domain: string): Promise<PreflightCheck[]> {
     dig("TXT", `${DKIM_SELECTOR}._domainkey.${domain}`),
     dig("TXT", `_dmarc.${domain}`),
   ]);
-  const spfOk = /v=spf1/i.test(spf);
+  return evaluateDnsRecords({ domain, spf, dkim, dmarc, selector: DKIM_SELECTOR });
+}
+
+/**
+ * Pure evaluation of the three mail-auth record sets — split out from the `dig`
+ * call so the parsing (especially the multi-SPF hazard) is testable.
+ */
+export function evaluateDnsRecords(
+  { domain, spf, dkim, dmarc, selector }:
+  { domain: string; spf: string; dkim: string; dmarc: string; selector: string },
+): PreflightCheck[] {
+  // Pick the RELEVANT record out of the TXT set. A domain typically also carries
+  // site-verification strings; showing the first line displayed those instead of
+  // the SPF policy. And RFC 7208 §3.2 allows exactly ONE SPF record — two make
+  // every receiver return PERMERROR, which silently destroys deliverability, so
+  // "a v=spf1 exists somewhere" is not a sufficient check.
+  const linesMatching = (s: string, re: RegExp) =>
+    s.split("\n").map((l) => l.trim()).filter((l) => re.test(l));
+
+  const spfRecords = linesMatching(spf, /v=spf1/i);
+  const dmarcRecords = linesMatching(dmarc, /v=DMARC1/i);
+  const spfOk = spfRecords.length === 1;
   const dkimOk = /(v=DKIM1|p=[A-Za-z0-9])/i.test(dkim);
-  const dmarcOk = /v=DMARC1/i.test(dmarc);
-  const firstLine = (s: string) => s.split("\n")[0] ?? "";
-  const lastLine = (s: string) => { const p = s.split("\n"); return p[p.length - 1] ?? ""; };
+  const dmarcOk = dmarcRecords.length >= 1;
+
+  const spfDetail = spfRecords.length === 1
+    ? (spfRecords[0] as string)
+    : spfRecords.length === 0
+      ? `kein SPF-Record für ${domain}`
+      : `${spfRecords.length} SPF-Records für ${domain} — RFC 7208 erlaubt genau einen (führt zu PERMERROR)`;
+
   return [
-    { id: "dns-spf", label: "DNS · SPF", ok: spfOk, blocking: true, detail: spfOk ? firstLine(spf) : `kein SPF-Record für ${domain}` },
-    { id: "dns-dkim", label: "DNS · DKIM", ok: dkimOk, blocking: true, detail: dkimOk ? `Key veröffentlicht (${DKIM_SELECTOR})` : `kein DKIM-Key ${DKIM_SELECTOR}._domainkey.${domain}` },
-    { id: "dns-dmarc", label: "DNS · DMARC", ok: dmarcOk, blocking: true, detail: dmarcOk ? lastLine(dmarc) : `kein DMARC-Record für _dmarc.${domain}` },
+    { id: "dns-spf", label: "DNS · SPF", ok: spfOk, blocking: true, detail: spfDetail },
+    { id: "dns-dkim", label: "DNS · DKIM", ok: dkimOk, blocking: true, detail: dkimOk ? `Key veröffentlicht (${selector})` : `kein DKIM-Key ${selector}._domainkey.${domain}` },
+    { id: "dns-dmarc", label: "DNS · DMARC", ok: dmarcOk, blocking: true, detail: dmarcOk ? (dmarcRecords[0] as string) : `kein DMARC-Record für _dmarc.${domain}` },
   ];
 }
 
@@ -223,6 +298,13 @@ export async function runPreflight(opts: PreflightOptions): Promise<PreflightRes
   checks.push({ id: "approved-only", label: "Nur 'approved' berücksichtigt", ok: sel.approved > 0, blocking: true, detail: `${sel.approved} approved` });
   checks.push({ id: "opt-out", label: "Opt-out ausgeschlossen", ok: true, blocking: false, detail: `${sel.blockedUnsub} abgemeldete Kontakte blockiert` });
   checks.push({ id: "dedupe", label: "Doppelte Empfänger ausgeschlossen", ok: true, blocking: false, detail: `${sel.dupDropped} Duplikate · ${sel.noEmailDropped} ohne Adresse entfernt` });
+  checks.push({ id: "already-contacted", label: "Bereits kontaktierte Adressen ausgeschlossen", ok: true, blocking: false, detail: `${sel.contactedDropped} Adressen aus früheren Batches entfernt` });
+  if (!opts.skipNetwork) {
+    checks.push(await recipientMxCheck(
+      sel.batch.map((a) => a.email as string),
+      opts.mxResolve ?? dnsMxResolver,
+    ));
+  }
   checks.push({ id: "batch-limit", label: "Versandlimit", ok: sel.batch.length > 0, blocking: true, detail: `${sel.batch.length} zu senden (Limit ${opts.batchSize} · ${sel.afterDedupe} verfügbar)` });
 
   // 8) Report file — a durable per-batch artefact must be creatable.
@@ -248,6 +330,7 @@ export async function runPreflight(opts: PreflightOptions): Promise<PreflightRes
       afterDedupe: sel.afterDedupe,
       toSend: sel.batch.length,
       dupDropped: sel.dupDropped,
+      contactedDropped: sel.contactedDropped,
       noEmailDropped: sel.noEmailDropped,
       blockedUnsub: sel.blockedUnsub,
     },

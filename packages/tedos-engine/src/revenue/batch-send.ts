@@ -44,6 +44,9 @@ const SENDER = {
   name: process.env.REVENUE_FROM_NAME ?? activeBrandProfile().identity.senderName,
 } as const;
 
+/** Reply-To for outbound mail — defaults to the sender (env `REVENUE_REPLY_TO` overrides). */
+const REPLY_TO = process.env.REVENUE_REPLY_TO ?? SENDER.email;
+
 /** Full lead lifecycle shown in the Revenue Center. */
 export type LeadStatus =
   | "active" | "pending" | "approved" | "sent" | "replied"
@@ -71,6 +74,8 @@ export interface LeadRecord {
   /** Opt-out bookkeeping. */
   unsubscribed_at?: string;
   unsubscribe_reason?: string;
+  /** Set when a permanent (5.x.x) bounce suppressed this address. */
+  bounced_at?: string;
 }
 
 /** Reply phrases that trigger an automatic opt-out (case-insensitive, whole word). */
@@ -153,6 +158,24 @@ export function rejectLeads(storage: Storage, ids: string[]): void {
   saveLeadStatus(storage, map);
 }
 
+/**
+ * Mark leads as "bounced" — a permanent (5.x.x) delivery failure. They are then
+ * excluded from every future batch by `contactedAddresses()`. Opt-out still wins,
+ * and an already-`unsubscribed` record is never downgraded.
+ */
+export function markBounced(storage: Storage, ids: string[], at: string): number {
+  const map = loadLeadStatus(storage);
+  let changed = 0;
+  for (const id of ids) {
+    if (map[id]?.status === "unsubscribed") continue;
+    if (map[id]?.status === "bounced") continue;
+    map[id] = { ...(map[id] ?? {}), status: "bounced", bounced_at: at };
+    changed += 1;
+  }
+  if (changed) saveLeadStatus(storage, map);
+  return changed;
+}
+
 /** Skip leads (☐ in the Revenue Center) — status "pending", revisit later. */
 export function skipLeads(storage: Storage, ids: string[]): void {
   const map = loadLeadStatus(storage);
@@ -182,11 +205,19 @@ export function unsubscribeLead(
   idOrToken: string,
   reason = "Opt-out",
   clock: () => string = () => new Date().toISOString(),
+  /** Record the opt-out even when `idOrToken` has no status row yet (see below). */
+  createIfMissing = false,
 ): string | null {
   const map = loadLeadStatus(storage);
   // Direct id, else resolve a token against known leads.
   let id: string | null = map[idOrToken] ? idOrToken : null;
   if (!id) id = Object.keys(map).find((k) => unsubscribeToken(k) === idOrToken) ?? null;
+  // The token lookup can only match leads that ALREADY carry a status row, so a
+  // caller that resolved the lead itself (unsubscribe-sync, which recomputes
+  // token → id against the full CRM) must be able to record an opt-out for a
+  // lead we never logged. Opt-in only: the default stays "unknown → null", so a
+  // bogus id can never create a junk row.
+  if (!id && createIfMissing) id = idOrToken;
   if (!id) return null;
   map[id] = { ...(map[id] ?? { status: "active" }), status: "unsubscribed", unsubscribed_at: clock(), unsubscribe_reason: reason };
   saveLeadStatus(storage, map);
@@ -269,15 +300,76 @@ export interface SendableSelection {
   approved: number;      // raw count with status "approved"
   withEmail: number;     // approved AND carrying a deliverable address
   afterDedupe: number;   // withEmail AND a unique (lower-cased) address
-  dupDropped: number;    // duplicate recipients removed
+  dupDropped: number;    // duplicate recipients removed (within this batch)
+  contactedDropped: number; // address already reached in an EARLIER batch
   noEmailDropped: number;// approved leads without an address removed
   blockedUnsub: number;  // opted-out leads present in the CRM (defence-in-depth)
 }
 
 /**
+ * The `List-Unsubscribe` header pair for one recipient.
+ *
+ * Gmail and Yahoo require a working List-Unsubscribe on bulk mail (their
+ * bulk-sender rules, in force since February 2024); without it a sender's
+ * reputation degrades regardless of how clean the list is. The header also
+ * gives the recipient the native "Unsubscribe" button next to the sender name,
+ * which is far more likely to be used than a footer link — and every opt-out
+ * taken there is one complaint NOT filed.
+ *
+ * Two forms are emitted:
+ *   • https: — the RFC 8058 one-click endpoint (paired with List-Unsubscribe-Post)
+ *   • mailto: — the universal fallback, honoured by the reply-based opt-out
+ *
+ * List-Unsubscribe-Post is only set when a POST endpoint is configured: naming
+ * one-click without a working POST target is worse than not offering it.
+ */
+export function listUnsubscribeHeaders(unsubUrl: string | undefined): Record<string, string> {
+  const brand = activeBrandProfile();
+  const postUrl = process.env.REVENUE_UNSUBSCRIBE_POST_URL ?? brand.urls.unsubscribePostUrl;
+  const token = unsubUrl?.split("/").filter(Boolean).pop() ?? "";
+  const mailto = `<mailto:${brand.identity.senderEmail}?subject=Abmelden>`;
+
+  if (!postUrl || !token) return { "List-Unsubscribe": mailto };
+
+  const oneClick = `<${postUrl}?token=${encodeURIComponent(token)}>`;
+  return {
+    "List-Unsubscribe": `${oneClick}, ${mailto}`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}
+
+/**
+ * Statuses that mean "this address has already been reached, or must never be
+ * reached again". The same company often sits in the CRM under several lead ids
+ * sharing one `info@` address — without this set, approving the second id would
+ * mail the same mailbox twice.
+ */
+const ALREADY_CONTACTED: LeadStatus[] = [
+  "sent", "replied", "bounced", "demo-booked", "won", "lost", "unsubscribed",
+];
+
+/**
+ * Every address that a previous batch already reached (or that is burned), taken
+ * across ALL lead ids — the key to cross-batch deduplication.
+ */
+export function contactedAddresses(
+  accounts: Account[],
+  statusMap: Record<string, LeadRecord>,
+): Set<string> {
+  const burned = new Set<string>();
+  for (const a of accounts) {
+    const st = statusMap[a.id]?.status;
+    const email = (a.email ?? "").trim().toLowerCase();
+    if (email && st && ALREADY_CONTACTED.includes(st)) burned.add(email);
+  }
+  return burned;
+}
+
+/**
  * Narrow the CRM accounts to the sendable batch, applying — in order — the
- * approved-only filter, the deliverable-address requirement, duplicate-recipient
- * exclusion, and the batch-size cap. Opt-out is enforced upstream (an
+ * approved-only filter, the deliverable-address requirement, exclusion of
+ * addresses already contacted in an earlier batch, duplicate-recipient exclusion
+ * within this batch, and the batch-size cap. Opt-out is enforced upstream (an
  * unsubscribed lead can never be "approved"); `blockedUnsub` surfaces the count
  * for transparency. Pure: no IO, no dispatch. Shared by the preflight and the
  * actual send so both operate on the EXACT same set (no drift).
@@ -291,9 +383,19 @@ export function selectSendable(
   const blockedUnsub = ranked.filter((a) => statusMap[a.id]?.status === "unsubscribed").length;
   const approvedList = ranked.filter((a) => statusMap[a.id]?.status === "approved");
   const withEmailList = approvedList.filter((a) => (a.email ?? "").trim() !== "");
+
+  // Cross-batch: drop anything whose address a previous batch already reached.
+  const burned = contactedAddresses(accounts, statusMap);
+  let contactedDropped = 0;
+  const unreached = withEmailList.filter((a) => {
+    if (burned.has((a.email as string).trim().toLowerCase())) { contactedDropped += 1; return false; }
+    return true;
+  });
+
+  // Within-batch: the same address may still appear under two approved ids.
   const seen = new Set<string>();
   let dupDropped = 0;
-  const deduped = withEmailList.filter((a) => {
+  const deduped = unreached.filter((a) => {
     const key = (a.email as string).trim().toLowerCase();
     if (seen.has(key)) { dupDropped += 1; return false; }
     seen.add(key);
@@ -305,6 +407,7 @@ export function selectSendable(
     withEmail: withEmailList.length,
     afterDedupe: deduped.length,
     dupDropped,
+    contactedDropped,
     noEmailDropped: approvedList.length - withEmailList.length,
     blockedUnsub,
   };
@@ -405,10 +508,14 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
       ...(account.company ? { toName: account.company } : {}),
       from: SENDER.email,
       fromName: SENDER.name,
-      replyTo: SENDER.email,
+      replyTo: REPLY_TO,
       ...(bccAddress ? { bcc: bccAddress } : {}),
-      subject: opp.subjects[0] ?? `${account.company}: CO₂-Daten`,
+      subject: opp.subjects[0] ?? activeBrandProfile().copy.queueSubjectFallback(account.company),
       html: opp.emailHtml,
+      // multipart/alternative — HTML-only bulk mail is penalized by every major
+      // spam filter and is unreadable in text-only clients.
+      text: opp.emailText,
+      headers: listUnsubscribeHeaders(opp.unsubscribeUrl),
       tags: ["revenue-batch", `batch-${batchNumber}`],
     };
 

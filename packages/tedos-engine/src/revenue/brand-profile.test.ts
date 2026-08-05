@@ -51,7 +51,7 @@ describe("brand-profile: selection", () => {
       key: "acme", productName: "Acme",
       identity: {
         senderName: "A", senderEmail: "a@acme.test", bcc: "a@acme.test", websiteUrl: "https://acme.test",
-        emailTitle: "Acme", bannerAlt: "Acme — X", unsubscribeSecret: "acme-unsub",
+        emailTitle: "Acme", bannerAlt: "Acme — X", accent: "#111111", accentHover: "#000000", unsubscribeSecret: "acme-unsub",
       },
       urls: {
         trialUrl: "https://acme.test/trial", calendlyUrl: "https://cal/acme",

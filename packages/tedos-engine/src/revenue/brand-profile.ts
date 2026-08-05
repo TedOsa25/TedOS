@@ -36,6 +36,10 @@ export interface BrandIdentity {
   emailTitle: string;
   /** Banner `alt` text (unique per brand). */
   bannerAlt: string;
+  /** Primary accent — CTA button + link colour (env `REVENUE_EMAIL_ACCENT` still wins). */
+  accent: string;
+  /** Hover/pressed darken of the accent (env `REVENUE_EMAIL_ACCENT_HOVER` still wins). */
+  accentHover: string;
   /** Salt for the deterministic per-lead unsubscribe token (env still wins). */
   unsubscribeSecret: string;
 }
@@ -47,6 +51,13 @@ export interface BrandUrls {
   imprintUrl: string;
   privacyUrl: string;
   unsubscribeBase: string;
+  /**
+   * RFC 8058 one-click endpoint for the `List-Unsubscribe-Post` header. Must
+   * accept a POST and complete the opt-out without any further interaction.
+   * Optional: without it only the mailto: form of List-Unsubscribe is emitted,
+   * which is still valid — just not one-click.
+   */
+  unsubscribePostUrl?: string;
 }
 
 /** Banner + signature assets. */
@@ -91,6 +102,13 @@ export interface BrandCopy {
   germanizePain: (raw: string) => string;
   /** The email body paragraph per copy tone (A–E): what the product does + the ask. */
   emailBody: { value: Record<Variant, string>; closing: Record<Variant, string> };
+  /**
+   * One sentence naming the obligation THIS lead is actually under, keyed by the
+   * campaign `selectCampaign` derived. The variant decides HOW the pitch sounds;
+   * this decides WHAT the recipient has to deliver. Optional — a brand without
+   * it falls back to the generic value paragraph alone.
+   */
+  needLead?: (campaign: string) => string;
   /** Deterministic campaign selection from the account's real signals. */
   selectCampaign: (a: Account) => string;
 }

@@ -6,7 +6,7 @@
 import type { Account } from "../accounts.js";
 import type { BrandProfile } from "../brand-profile.js";
 import {
-  HEYCARBO_VALUE, HEYCARBO_CLOSING, selectCampaignHeycarbo, researchIntro, germanizePain,
+  HEYCARBO_VALUE, HEYCARBO_CLOSING, needLeadHeycarbo, selectCampaignHeycarbo, researchIntro, germanizePain,
 } from "../email-copy.js";
 
 const WEBSITE = "https://heycarbo.com";
@@ -21,14 +21,24 @@ export const HEYCARBO_PROFILE: BrandProfile = {
     websiteUrl: WEBSITE,
     emailTitle: "HeyCarbo",
     bannerAlt: "HeyCarbo — Carbon. Made. Simple.",
+    accent: "#13A6A6",
+    accentHover: "#0F8F8F",
     unsubscribeSecret: "heycarbo-unsub",
   },
   urls: {
-    trialUrl: `${WEBSITE}/trial`,
+    // MUST stay a PUBLIC route: /trial sits behind <ProtectedRoute> in the app,
+    // so a cold recipient clicking the CTA hit the login wall instead of signing
+    // up. /signup is the public entry point (HeyAudit already points there).
+    trialUrl: `${WEBSITE}/signup`,
     calendlyUrl: "https://calendly.com/ted-heycarbo/30min",
     imprintUrl: `${WEBSITE}/impressum`,
     privacyUrl: `${WEBSITE}/datenschutz`,
     unsubscribeBase: `${WEBSITE}/unsubscribe`,
+    // Supabase edge function `marketing-unsubscribe` — the same endpoint the
+    // /unsubscribe page posts to. Gmail/Yahoo bulk-sender rules expect a
+    // one-click List-Unsubscribe-Post target; this is it.
+    unsubscribePostUrl:
+      "https://odwbhglzsmmtkrriggkv.supabase.co/functions/v1/marketing-unsubscribe",
   },
   assets: {
     hostedAssetBase: "https://cdn.jsdelivr.net/gh/TedOsa25/heycarbo-email-assets@master",
@@ -70,6 +80,7 @@ export const HEYCARBO_PROFILE: BrandProfile = {
     intro: researchIntro,
     germanizePain,
     emailBody: { value: HEYCARBO_VALUE, closing: HEYCARBO_CLOSING },
+    needLead: needLeadHeycarbo,
     selectCampaign: selectCampaignHeycarbo,
   },
 };

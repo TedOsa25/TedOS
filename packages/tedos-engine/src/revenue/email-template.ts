@@ -40,8 +40,10 @@ const EMBED_ASSETS = process.env.REVENUE_ASSETS_EMBED === "1" || !HOSTED_ASSET_B
 
 /** Brand tokens — pulled from the live HeyCarbo website. */
 const BRAND = {
-  turquoise: "#13A6A6", // primary CTA (rgb(19,166,166)) — exact website value
-  turquoiseHover: "#0F8F8F", // subtle darken for clients that honour :hover
+  // Primary accent (CTA button + links) — from the active brand profile; env wins.
+  turquoise: process.env.REVENUE_EMAIL_ACCENT ?? activeBrandProfile().identity.accent,
+  turquoiseHover:
+    process.env.REVENUE_EMAIL_ACCENT_HOVER ?? activeBrandProfile().identity.accentHover,
   text: "#16172B", // primary text
   muted: "#667085", // secondary text
   bg: "#FFFFFF", // background
@@ -345,6 +347,43 @@ export function renderEmail(p: EmailParts): string {
     `</td></tr></table>` +
     `</body></html>`
   );
+}
+
+/**
+ * Assemble the plain-text alternative of the same email.
+ *
+ * Built from the SAME structured parts as renderEmail() — never scraped out of
+ * the rendered HTML, so the two parts can not drift apart in wording. A mail
+ * sent as HTML-only scores worse with every major spam filter and is unreadable
+ * in text-only clients; multipart/alternative is the baseline expectation for
+ * bulk mail, and the opt-out has to be reachable in this part too.
+ */
+export function renderEmailText(p: EmailParts): string {
+  const a = EMAIL_ASSETS;
+  const brand = activeBrandProfile();
+  const unsubscribe = p.unsubscribeUrl ?? a.unsubscribeBase;
+  return [
+    p.greeting,
+    "",
+    p.intro,
+    "",
+    p.value,
+    "",
+    p.closing,
+    "",
+    `${p.ctaText}: ${p.ctaUrl}`,
+    `${SECONDARY_CTA_TEXT.replace(/\s*→\s*$/, "")}: ${a.calendlyUrl}`,
+    "",
+    `${brand.identity.senderName} · ${brand.productName}`,
+    brand.identity.senderEmail,
+    "",
+    "—",
+    brand.footer.relevanceSentence,
+    "",
+    `Abmelden: ${unsubscribe}`,
+    `Impressum: ${p.imprintUrl ?? a.imprintUrl}`,
+    `Datenschutzerklärung: ${p.privacyUrl ?? a.privacyUrl}`,
+  ].join("\n");
 }
 
 /** The central template assets (for the Revenue Center previews). */

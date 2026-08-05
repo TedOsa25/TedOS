@@ -13,8 +13,19 @@
 import { type Account, prioritize } from "./accounts.js";
 import type { LeadRecord } from "./batch-send.js";
 
-/** Statuses that make a lead ineligible for a fresh approval. */
-const INELIGIBLE = new Set(["sent", "lost", "unsubscribed", "approved", "bounced"]);
+/**
+ * Statuses that make a lead ineligible for a fresh approval.
+ *
+ * "replied", "demo-booked" and "won" are here for the same reason as "sent":
+ * the conversation has already started, and dropping a cold outbound mail into
+ * it is the worst possible touch. The send-side selector already refuses these
+ * (ALREADY_CONTACTED in batch-send.ts), so leaving them out never leaked a real
+ * email — it just let them consume approval slots and silently shrink the
+ * batch below the requested N.
+ */
+const INELIGIBLE = new Set([
+  "sent", "lost", "unsubscribed", "approved", "bounced", "replied", "demo-booked", "won",
+]);
 
 /** Generic role mailboxes — deliverable but rarely reach a decision-maker. */
 const ROLE_LOCALPARTS = new Set([

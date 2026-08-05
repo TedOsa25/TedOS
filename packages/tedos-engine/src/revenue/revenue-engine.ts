@@ -14,7 +14,7 @@ import { checkContent } from "./../brand-guardian.js";
 import { DistributionQueue, type DistributionJobInput } from "./../distribution-queue.js";
 import { type Account, loadAccounts, prioritize } from "./accounts.js";
 import { activeBrandProfile } from "./brand-profile.js";
-import { EMAIL_ASSETS, EMAIL_BANNER, renderEmail, unsubscribeToken, unsubscribeUrl } from "./email-template.js";
+import { EMAIL_ASSETS, EMAIL_BANNER, renderEmail, renderEmailText, unsubscribeToken, unsubscribeUrl } from "./email-template.js";
 import { VARIANTS, VARIANT_LABEL, DEFAULT_VARIANT, namedOems, type Variant } from "./email-copy.js";
 
 /** A referenced banner asset (the central email banner). */
@@ -112,6 +112,8 @@ export interface RevenueOpportunity {
   subjects: string[];
   previewText: string;
   emailHtml: string;
+  /** Plain-text alternative of emailHtml — the text/plain part of the send. */
+  emailText: string;
   linkedin: string;
   followUp1: string;
   followUp2: string;
@@ -165,10 +167,14 @@ export function buildOpportunity(a: Account, clock: () => string, variant: Varia
 
   // The ONLY per-account text: short, conversion-first copy in the chosen tone,
   // assembled from the active brand profile (opener + body + closing).
+  // The value paragraph now opens with the obligation THIS lead is actually
+  // under (from selectCampaign) and only then makes the pitch. Same tone
+  // variants as before — the need decides the first sentence, not the tone.
+  const needLead = brand.copy.needLead?.(campaign) ?? "";
   const copy = {
     greeting: "Guten Tag,",
     intro: brand.copy.intro(a),
-    value: brand.copy.emailBody.value[variant],
+    value: [needLead, brand.copy.emailBody.value[variant]].filter(Boolean).join(" "),
     closing: brand.copy.emailBody.closing[variant],
   };
   // The primary CTA is fixed for every email: the brand's label on a turquoise
@@ -179,10 +185,13 @@ export function buildOpportunity(a: Account, clock: () => string, variant: Varia
   //   text · banner · "14 Tage kostenlos testen" button · demo link · signature · legal footer.
   // The legal footer carries this lead's own unsubscribe link.
   const unsubUrl = unsubscribeUrl(a.id);
-  const emailHtml = renderEmail({
+  const emailParts = {
     greeting: copy.greeting, intro: copy.intro, value: copy.value, closing: copy.closing,
     ctaText: cta.text, ctaUrl: cta.url, unsubscribeUrl: unsubUrl,
-  });
+  };
+  const emailHtml = renderEmail(emailParts);
+  // Same parts, text form — the multipart/alternative sibling of emailHtml.
+  const emailText = renderEmailText(emailParts);
 
   const subjects = brand.copy.subjects(a);
   const previewText = brand.copy.previewText;
@@ -202,7 +211,7 @@ export function buildOpportunity(a: Account, clock: () => string, variant: Varia
     accountId: a.id, company: a.company, industry: a.industry,
     ...(a.contactTitle ? { contactTitle: a.contactTitle } : {}),
     ...(a.email ? { email: a.email } : {}),
-    variant, campaign, subjects, previewText, emailHtml, linkedin, followUp1, followUp2, summary, banner,
+    variant, campaign, subjects, previewText, emailHtml, emailText, linkedin, followUp1, followUp2, summary, banner,
     ctaText: cta.text, ctaUrl: cta.url, quality,
     personalizationScore: personalizationScore(a, copy.intro), confidenceScore: confidenceScore(a),
     fitScore: a.fitScore, revenueScore: a.revenueScore, buyingIntent: a.buyingIntent, priority: a.priority,

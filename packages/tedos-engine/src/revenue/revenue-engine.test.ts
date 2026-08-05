@@ -187,3 +187,82 @@ describe("RevenueEngine: queueing + quota + missing data", () => {
     assert.equal(c.readyToSend, 0);
   });
 });
+
+describe("need-adapted copy", () => {
+  /** Minimal account carrying exactly one carbon signal, to steer selectCampaign. */
+  const acct = (signal: Partial<Record<string, unknown>>): Account =>
+    normalize({ id: "X1", name: "Musterteile GmbH", industry: "Automotive / Zulieferer",
+      email: "info@musterteile.de", website: "https://musterteile.de", prio: "A", score: 88,
+      employees: 300, ...signal }, 0);
+
+  const CASES: [string, Record<string, unknown>, RegExp][] = [
+    ["catena-x", { catena_x_relevance: "high" }, /Catena-X-Anfragen verlangen den PCF je Teilenummer/],
+    ["pcf", { pcf_relevance: "high" }, /Product Carbon Footprints je Artikel/],
+    ["csrd", { csrd_relevance: "high" }, /CSRD-Berichtspflicht/],
+    ["supplier-management", { heycarbo_pain_points: ["Lieferant muss Daten liefern"] }, /eigene Scope-3-Bilanz/],
+    ["esg", { heycarbo_pain_points: ["EcoVadis Fragebogen"] }, /EcoVadis- und CDP-Fragebögen/],
+    // Industry override: the default fixture is automotive, which now correctly
+    // resolves to catena-x — scope-3 is what a non-manufacturing branch gets.
+    ["scope-3", { industry: "Logistik" }, /Scope 3 ist der größte Posten/],
+  ];
+
+  for (const [campaign, signal, expected] of CASES) {
+    test(`"${campaign}" leads with the obligation that campaign implies`, () => {
+      const a = acct(signal);
+      const o = buildOpportunity(a, clock);
+      assert.equal(selectCampaign(a), campaign);
+      assert.match(o.emailHtml, expected);
+    });
+  }
+
+  test("two different needs produce two different value paragraphs", () => {
+    const catena = buildOpportunity(acct({ catena_x_relevance: "high" }), clock);
+    const csrd = buildOpportunity(acct({ csrd_relevance: "high" }), clock);
+    assert.notEqual(catena.emailHtml, csrd.emailHtml);
+  });
+
+  test("every need stays inside the word budget and passes the gates, in all variants", () => {
+    for (const [, signal] of CASES) {
+      for (const v of ["A", "B", "C", "D", "E"] as const) {
+        const o = buildOpportunity(acct(signal), clock, v);
+        assert.equal(o.quality.concise, true, `zu lang: Variante ${v}`);
+        assert.equal(o.quality.passed, true, `Gate verletzt (${v}): ${o.quality.issues.join(", ")}`);
+      }
+    }
+  });
+});
+
+describe("campaign fallback from industry", () => {
+  const bare = (industry: string): Account =>
+    normalize({ id: "Y1", name: "Teilewerk GmbH", industry, email: "info@teilewerk.de",
+      website: "https://teilewerk.de", prio: "A", score: 88, employees: 300 }, 0);
+
+  test("an unenriched supplier no longer collapses onto the generic default", () => {
+    // These carry no pcf_/catena_x_/csrd_relevance and no pain points — the
+    // normal state of ~97 % of the CRM.
+    assert.equal(selectCampaign(bare("Automotive / Zulieferer")), "catena-x");
+    assert.equal(selectCampaign(bare("Kunststoff")), "pcf");
+    assert.equal(selectCampaign(bare("Elektrotechnik")), "pcf");
+    assert.equal(selectCampaign(bare("Oberflächentechnik")), "pcf");
+    assert.equal(selectCampaign(bare("Metall")), "pcf");
+  });
+
+  test("non-manufacturing branches keep the generic Scope-3 framing", () => {
+    assert.equal(selectCampaign(bare("Logistik")), "scope-3");
+    assert.equal(selectCampaign(bare("Beratung")), "scope-3");
+  });
+
+  test("explicit enrichment still wins over the industry guess", () => {
+    const a = normalize({ id: "Y2", name: "X", industry: "Kunststoff", email: "i@x.de",
+      website: "https://x.de", prio: "A", score: 80, csrd_relevance: "high" }, 0);
+    assert.equal(selectCampaign(a), "csrd"); // not "pcf"
+  });
+
+  test("the fallback still yields a need sentence within the gates", () => {
+    for (const ind of ["Automotive / Zulieferer", "Kunststoff", "Logistik"]) {
+      const o = buildOpportunity(bare(ind), clock);
+      assert.equal(o.quality.passed, true, `Gate verletzt (${ind}): ${o.quality.issues.join(", ")}`);
+      assert.ok(o.emailHtml.length > 0);
+    }
+  });
+});

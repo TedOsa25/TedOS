@@ -187,6 +187,29 @@ export const HEYCARBO_VALUE: Record<Variant, string> = {
   E: "Mit HeyCarbo erstellen Sie CO₂-Bilanzen (Scope 1–3) und Product Carbon Footprints in wenigen Minuten – auditfähig und für mittelständische Industrie gemacht.",
 };
 
+/**
+ * Need-specific opening of the value paragraph, keyed by campaign.
+ *
+ * `selectCampaignHeycarbo()` already derives WHICH obligation a lead is actually
+ * under — but that only ever fed internal metadata, so every recipient read the
+ * same generic pitch. These sentences name the concrete requirement instead.
+ * Each is deliberately short (≤ 16 words): the body has a 130-word budget and
+ * the intro plus the tone paragraph already use most of it.
+ */
+export const HEYCARBO_NEED: Record<string, string> = {
+  "catena-x": "Catena-X-Anfragen verlangen den PCF je Teilenummer nach ISO 14067 – nicht auf Unternehmensebene.",
+  pcf: "Product Carbon Footprints je Artikel sind bei Industriekunden zunehmend Teil der Vergabeentscheidung.",
+  csrd: "Für die CSRD-Berichtspflicht müssen Scope 1 bis 3 prüffähig dokumentiert sein.",
+  "supplier-management": "Ihre Kunden fordern Lieferantendaten für ihre eigene Scope-3-Bilanz an – meist mit Frist.",
+  esg: "EcoVadis- und CDP-Fragebögen kosten pro Antwort schnell mehrere Arbeitstage.",
+  "scope-3": "Scope 3 ist der größte Posten der Bilanz – und genau der, den Ihre Kunden abfragen.",
+};
+
+/** Need sentence for a campaign; empty string when the campaign is unknown. */
+export function needLeadHeycarbo(campaign: string): string {
+  return HEYCARBO_NEED[campaign] ?? "";
+}
+
 /** HeyCarbo closing ask per tone (A–E). Referenced by the HeyCarbo profile. */
 export const HEYCARBO_CLOSING: Record<Variant, string> = {
   A: "Hätten Sie nächste Woche 15 Minuten für einen kurzen Austausch?",
@@ -210,6 +233,23 @@ export function selectCampaignHeycarbo(a: Account): string {
   if (/csrd|esrs|berichtspflicht/.test(hay)) return "csrd";
   if (/lieferant|supplier|supply chain|scope ?3/.test(hay)) return "supplier-management";
   if (/ecovadis|cdp|esg|questionnaire|fragebogen/.test(hay)) return "esg";
+  return campaignFromIndustry(a.industry);
+}
+
+/**
+ * Fallback when a lead carries none of the enrichment fields — which is the
+ * normal case: only ~3 % of the CRM has `pcf_relevance` & friends, so everything
+ * else used to collapse onto "scope-3" and read identically.
+ *
+ * The branch itself is a real signal: a company that ships physical articles
+ * into industrial customers gets asked for a PCF per article, while an
+ * automotive supplier gets asked through Catena-X specifically.
+ */
+export function campaignFromIndustry(industry: string): string {
+  const s = String(industry ?? "").toLowerCase();
+  if (/automotive|mobility|fahrzeug|automobil|\bkfz\b/.test(s)) return "catena-x";
+  if (/kunststoff|chemie|polymer|plastic|metall|stahl|aluminium|guss|gieß|giess|keramik|glas|papier|verpackung|gummi|elastomer|elektronik|elektrotechnik|kabel|komponent|oberfläch|beschicht|textil|werkzeug|feinmechanik/.test(s))
+    return "pcf";
   return "scope-3";
 }
 
