@@ -172,6 +172,53 @@ export async function urlChecks(
   );
 }
 
+/**
+ * Prüft, ob das Opt-out-Register wirklich funktioniert.
+ *
+ * Die bisherige URL-Prüfung fragt nur `unsubscribeBase` ab — und die liefert
+ * HTTP 200, selbst wenn die Abmeldung defekt ist: vercel.json leitet jeden
+ * Pfad auf index.html, die SPA rendert dann ihre 404-Seite. Genau so konnten
+ * ~1.715 Mails mit einem toten Abmeldelink rausgehen, ohne dass der Preflight
+ * anschlug.
+ *
+ * Deshalb wird hier der Speicher selbst geprüft: ein lesender GET gegen den
+ * Endpunkt (Service-Role, read-only, schreibt nichts). Antwortet er 5xx, fehlt
+ * die Tabelle — dann darf kein Batch laufen, weil die gesetzlich zwingende
+ * Abmeldung (§ 7 UWG, Art. 21 DSGVO) nicht erfasst würde.
+ */
+export async function optOutRegisterCheck(
+  postUrl: string | undefined,
+  serviceKey: string | undefined,
+  fetchFn: typeof fetch = fetch,
+): Promise<PreflightCheck> {
+  const id = "optout-register";
+  const label = "Abmelde-Register erreichbar";
+  if (!postUrl) {
+    return { id, label, ok: false, blocking: true, detail: "kein Opt-out-Endpunkt konfiguriert (brand profile urls.unsubscribePostUrl)" };
+  }
+  if (!serviceKey) {
+    return { id, label, ok: false, blocking: true, detail: "SUPABASE_SERVICE_ROLE_KEY nicht gesetzt — Register nicht prüfbar, Versand nicht freigegeben" };
+  }
+  try {
+    const res = await fetchFn(`${postUrl}?since=2099-01-01T00:00:00Z`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${serviceKey}` },
+    });
+    if (res.status >= 500) {
+      return { id, label, ok: false, blocking: true, detail: `HTTP ${res.status} — Register nicht verfügbar (Migration 151 angewendet?). Abmeldungen würden verloren gehen.` };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { id, label, ok: false, blocking: true, detail: `HTTP ${res.status} — Service-Role-Key wird abgelehnt` };
+    }
+    if (!res.ok) {
+      return { id, label, ok: false, blocking: true, detail: `HTTP ${res.status} — unerwartete Antwort des Registers` };
+    }
+    return { id, label, ok: true, blocking: true, detail: "Register antwortet, Abmeldungen werden gespeichert" };
+  } catch (e) {
+    return { id, label, ok: false, blocking: true, detail: `nicht erreichbar — ${(e as Error).message}` };
+  }
+}
+
 /** DKIM selector to probe (IONOS default). Override for other mail hosts. */
 const DKIM_SELECTOR = process.env.REVENUE_DKIM_SELECTOR ?? "s1-ionos";
 
@@ -287,6 +334,12 @@ export async function runPreflight(opts: PreflightOptions): Promise<PreflightRes
   } else {
     const urls = opts.urls ?? brandSendUrls();
     checks.push(...(await urlChecks(urls, opts.urlFetch ?? ((u) => httpUrlFetcher(u)))));
+    // Die Landingpage-Prüfung oben kann eine kaputte Abmeldung nicht sehen
+    // (SPA-Fallback liefert 200) — das Register wird separat geprüft.
+    checks.push(await optOutRegisterCheck(
+      process.env.REVENUE_UNSUBSCRIBE_POST_URL ?? activeBrandProfile().urls.unsubscribePostUrl,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    ));
   }
 
   // 3–7) Approval queue → approved-only → opt-out → dedupe → batch limit.

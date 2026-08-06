@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { InMemoryStorage } from "./../storage.js";
 import { normalize, type Account } from "./accounts.js";
 import { approveLeads, unsubscribeLead, selectSendable, loadLeadStatus, markBounced, type LeadRecord } from "./batch-send.js";
-import { runPreflight, urlChecks, brandSendUrls, evaluateDnsRecords, recipientMxCheck, type UrlFetcher } from "./preflight.js";
+import { runPreflight, urlChecks, brandSendUrls, evaluateDnsRecords, recipientMxCheck, optOutRegisterCheck, type UrlFetcher } from "./preflight.js";
 
 const clock = () => "2026-07-07T09:00:00.000Z";
 
@@ -254,5 +254,35 @@ describe("urlChecks: only HTTP 200 is accepted", () => {
   test("brandSendUrls covers the four required landing pages for the active brand", () => {
     const labels = brandSendUrls().map((u) => u.label).sort();
     assert.deepEqual(labels, ["abmelden", "datenschutz", "impressum", "signup"]);
+  });
+});
+
+describe("optOutRegisterCheck: die Abmeldung muss wirklich gespeichert werden", () => {
+  const URL_ = "https://example.supabase.co/functions/v1/marketing-unsubscribe";
+  const fake = (status: number) => (async () => ({ status, ok: status >= 200 && status < 300 })) as unknown as typeof fetch;
+
+  test("5xx blockiert den Versand — die Tabelle fehlt, Abmeldungen gingen verloren", async () => {
+    const c = await optOutRegisterCheck(URL_, "svc", fake(500));
+    assert.equal(c.ok, false);
+    assert.equal(c.blocking, true);
+    assert.match(c.detail, /151/);
+  });
+
+  test("200 gibt den Versand frei", async () => {
+    const c = await optOutRegisterCheck(URL_, "svc", fake(200));
+    assert.equal(c.ok, true);
+  });
+
+  test("abgelehnter Service-Key blockiert", async () => {
+    assert.equal((await optOutRegisterCheck(URL_, "svc", fake(401))).ok, false);
+  });
+
+  test("ohne konfigurierten Endpunkt wird nicht gesendet", async () => {
+    assert.equal((await optOutRegisterCheck(undefined, "svc", fake(200))).ok, false);
+  });
+
+  test("ohne Service-Key ist das Register nicht prüfbar — kein Versand", async () => {
+    // Lieber ein blockierter Batch als einer, dessen Abmeldungen im Nichts landen.
+    assert.equal((await optOutRegisterCheck(URL_, undefined, fake(200))).ok, false);
   });
 });
