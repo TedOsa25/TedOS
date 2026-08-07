@@ -56,7 +56,9 @@ const replyTo = process.env.SMTP_REPLYTO ?? from;
 const subject = o.subjects[0] ?? "HeyCarbo";
 const text = [
   copy.greeting, "", copy.intro, "", copy.value, "", copy.closing, "",
-  `14 Tage kostenlos testen: ${o.ctaUrl}`,
+  // Aus der Opportunity, nicht hartkodiert: der Testversand muss denselben CTA
+  // zeigen wie der echte Batch, sonst prüft man etwas, das so nie rausgeht.
+  `${o.ctaText}: ${o.ctaUrl}`,
   `Oder direkt eine 15-Minuten-Demo vereinbaren: ${EMAIL_ASSETS.calendlyUrl}`,
   "", "Ted Osammor · Co-Founder | HeyCarbo · Carbon.Made.Simple.",
   "ted@heycarbo.com · +49 221 95934702 · www.heycarbo.com",

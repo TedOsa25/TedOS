@@ -11,7 +11,7 @@ import { buildOpportunity } from "./revenue-engine.js";
 
 const parts = {
   greeting: "Guten Tag,", intro: "Intro.", value: "Value.", closing: "Closing.",
-  ctaText: "14 Tage kostenlos testen", ctaUrl: "https://heycarbo.com/trial",
+  ctaText: "7 Tage kostenlos testen", ctaUrl: "https://heycarbo.com/trial",
 };
 
 describe("legal footer: rendered + required links", () => {
@@ -56,7 +56,7 @@ describe("legal footer: wired into the email + per-lead URL", () => {
     assert.match(html, />Impressum</);
     assert.match(html, /unsubscribe\/xyz/);
     // existing layout untouched: primary CTA + signature divider still present
-    assert.match(html, /14 Tage kostenlos testen/);
+    assert.match(html, /7 Tage kostenlos testen/);
   });
 
   test("buildOpportunity embeds THIS lead's unsubscribe URL (correct token)", () => {

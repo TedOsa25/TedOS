@@ -75,7 +75,11 @@ export const HEYCARBO_PROFILE: BrandProfile = {
       `Guten Tag, ich lasse es für heute dabei. Wenn ${ctx.campaign}-Themen für ${a.company} später relevant werden, melden Sie sich gern: ${ctx.calendlyUrl}`,
     summaryLead: "Warum HeyCarbo passt",
     painFallback: (ctx: { campaign: string }) => `${ctx.campaign}-Anforderungen der Kunden.`,
-    ctaText: "14 Tage kostenlos testen",
+    // MUSS zur tatsächlichen Testdauer passen: Migration 039 hat sie von 14 auf
+    // 7 Tage gesenkt ("Change trial from 14 to 7 days"), und 071 erzwingt das
+    // Feld system-seitig. Die Mail versprach 14 Tage, die Landingpage nennt 7 —
+    // wer klickte, sah als Erstes, dass die Zusage nicht gilt.
+    ctaText: "7 Tage kostenlos testen",
     queueSubjectFallback: (company: string) => `${company}: CO₂-Daten`,
     intro: researchIntro,
     germanizePain,

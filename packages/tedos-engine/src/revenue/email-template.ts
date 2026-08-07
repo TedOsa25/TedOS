@@ -8,7 +8,7 @@
 // Final layout (fixed for every email):
 //   1. greeting + intro + value  (short personalized text)
 //   2. closing                   — short, low-pressure ask, right under the text
-//   3. primary CTA button        — "14 Tage kostenlos testen" (turquoise, website look)
+//   3. primary CTA button        — "7 Tage kostenlos testen" (turquoise, website look)
 //   4. secondary CTA link        — "Oder direkt eine 15-Minuten-Demo vereinbaren →"
 //   5. marketing banner          — ONCE, directly above the signature
 //   6. HTML signature            — embedded AS-IS (only image paths are made absolute)
@@ -70,7 +70,7 @@ export const EMAIL_ASSETS = {
   bannerHosted: /^https?:/i.test(bannerSrc()),
   /** Global Calendly link — the secondary CTA target (all emails share it). */
   calendlyUrl: process.env.CALENDLY_URL ?? process.env.REVENUE_CALENDLY_URL ?? activeBrandProfile().urls.calendlyUrl,
-  /** 14-day trial landing — the PRIMARY CTA button target. */
+  /** Public signup landing — the PRIMARY CTA button target. */
   trialUrl: process.env.REVENUE_TRIAL_URL ?? activeBrandProfile().urls.trialUrl,
   /** Legal footer links — dynamic via config (never a relative path). */
   imprintUrl: process.env.REVENUE_IMPRINT_URL ?? activeBrandProfile().urls.imprintUrl,

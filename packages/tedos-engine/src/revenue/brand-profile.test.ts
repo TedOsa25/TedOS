@@ -101,7 +101,7 @@ describe("brand-profile: HeyCarbo extraction fidelity", () => {
 
   test("summary lead + CTA + follow-ups match the hardcoded copy", () => {
     assert.equal(hc.copy.summaryLead, "Warum HeyCarbo passt");
-    assert.equal(hc.copy.ctaText, "14 Tage kostenlos testen");
+    assert.equal(hc.copy.ctaText, "7 Tage kostenlos testen");
     assert.match(hc.copy.followUp1(account()), /HeyCarbo den Aufwand senkt/);
     assert.match(hc.copy.followUp2(account(), { campaign: "csrd", calendlyUrl: "https://cal/x" }), /csrd-Themen.*https:\/\/cal\/x/);
     assert.equal(hc.copy.queueSubjectFallback("GRAFE GmbH"), "GRAFE GmbH: CO₂-Daten");

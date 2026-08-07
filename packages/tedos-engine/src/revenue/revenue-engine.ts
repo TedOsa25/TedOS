@@ -182,7 +182,7 @@ export function buildOpportunity(a: Account, clock: () => string, variant: Varia
   const cta = { text: brand.copy.ctaText, url: EMAIL_ASSETS.trialUrl };
 
   // Central layout appended automatically:
-  //   text · banner · "14 Tage kostenlos testen" button · demo link · signature · legal footer.
+  //   text · banner · "7 Tage kostenlos testen" button · demo link · signature · legal footer.
   // The legal footer carries this lead's own unsubscribe link.
   const unsubUrl = unsubscribeUrl(a.id);
   const emailParts = {

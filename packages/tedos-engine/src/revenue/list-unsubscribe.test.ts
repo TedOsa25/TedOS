@@ -16,7 +16,7 @@ const parts = {
   intro: "Intro über Musterfirma.",
   value: "Value.",
   closing: "Closing.",
-  ctaText: "14 Tage kostenlos testen",
+  ctaText: "7 Tage kostenlos testen",
   ctaUrl: "https://heycarbo.com/signup",
 };
 

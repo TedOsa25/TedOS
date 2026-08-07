@@ -65,12 +65,12 @@ describe("revenue: content generation + quality gates", () => {
     // `alt="HeyCarbo —` is unique to the banner (the signature logo uses alt="HeyCarbo").
     assert.equal(o.emailHtml.split('alt="HeyCarbo —').length - 1, 1, "banner exactly once");
     assert.ok(
-      o.emailHtml.indexOf("14 Tage kostenlos testen") < o.emailHtml.indexOf('alt="HeyCarbo —'),
+      o.emailHtml.indexOf("7 Tage kostenlos testen") < o.emailHtml.indexOf('alt="HeyCarbo —'),
       "banner comes after the CTA (above the signature)",
     );
     assert.ok(o.emailHtml.includes("calendly.com/ted-heycarbo/30min"), "Calendly link present");
     assert.ok(o.emailHtml.includes("#13A6A6"), "website turquoise CTA");
-    assert.ok(o.emailHtml.includes("14 Tage kostenlos testen"), "primary CTA button");
+    assert.ok(o.emailHtml.includes("7 Tage kostenlos testen"), "primary CTA button");
     assert.ok(o.emailHtml.includes("Oder direkt eine 15-Minuten-Demo vereinbaren"), "secondary demo link");
     // No broken relative image paths in the final email (icons/ or assets/).
     assert.ok(!/src\s*=\s*["']icons\//i.test(o.emailHtml), "no relative icons/ paths");
@@ -90,7 +90,7 @@ describe("revenue: content generation + quality gates", () => {
     assert.ok(!/wir haben gesehen|mir ist aufgefallen/.test(o.emailHtml), "old openers removed");
     // Closing ask sits right under the personalized text — BEFORE the CTA.
     assert.ok(
-      o.emailHtml.indexOf("15 Minuten") < o.emailHtml.indexOf("14 Tage kostenlos testen"),
+      o.emailHtml.indexOf("15 Minuten") < o.emailHtml.indexOf("7 Tage kostenlos testen"),
       "closing ask under the text, above the CTA",
     );
   });
