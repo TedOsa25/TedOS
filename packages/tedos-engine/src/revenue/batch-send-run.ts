@@ -89,6 +89,9 @@ async function main(): Promise<void> {
     storage,
     accounts,
     batchSize: BATCH_SIZE,
+    // Was der Preflight als unzustellbar erkannt hat, darf der Versand nicht
+    // erneut aufgreifen — sonst prüft er eine andere Menge als er verschickt.
+    excludeEmails: new Set(pf.deadMx.map((e) => e.toLowerCase())),
     bcc: BCC, // explicit → BCC applies at any batch size ("" disables)
     ...(campaignLabel ? { campaignLabel } : {}),
     provider: getProvider(),

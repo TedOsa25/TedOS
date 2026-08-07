@@ -57,6 +57,8 @@ export interface PreflightResult {
   eligibility: PreflightEligibility;
   reportStem: string;
   reportDir: string;
+  /** Adressen, die wegen fehlendem MX aus dem Batch entfernt wurden. */
+  deadMx: string[];
 }
 
 export interface PreflightOptions {
@@ -98,7 +100,7 @@ export type MxResolver = (domain: string) => Promise<string[]>;
 export async function recipientMxCheck(
   emails: string[],
   resolve: MxResolver,
-): Promise<PreflightCheck> {
+): Promise<PreflightCheck & { deadEmails: string[] }> {
   const byDomain = new Map<string, string[]>();
   for (const e of emails) {
     const d = e.split("@")[1]?.toLowerCase();
@@ -118,10 +120,15 @@ export async function recipientMxCheck(
     id: "dns-recipients",
     label: "Empfänger-Domains mit MX",
     ok: affected.length === 0,
+    // Nicht blockierend, weil die betroffenen Adressen jetzt AUS DEM BATCH
+    // ENTFERNT werden statt ihn aufzuhalten (siehe runPreflight). Vorher war
+    // dies nur eine Meldung: Batch 89 nahm info@mercer.de trotz Warnung mit —
+    // eine Domain ohne MX kann Mail nicht annehmen, der Bounce war sicher.
     blocking: false,
     detail: affected.length === 0
       ? `${byDomain.size} Domains geprüft · alle nehmen Mail an`
-      : `${affected.length} Empfänger auf ${dead.length} Domain(s) OHNE MX — sicherer Bounce: ${affected.slice(0, 8).join(", ")}`,
+      : `${affected.length} Empfänger auf ${dead.length} Domain(s) OHNE MX — aus dem Batch entfernt: ${affected.slice(0, 8).join(", ")}`,
+    deadEmails: affected,
   };
 }
 
@@ -199,21 +206,31 @@ export async function optOutRegisterCheck(
   if (!serviceKey) {
     return { id, label, ok: false, blocking: true, detail: "SUPABASE_SERVICE_ROLE_KEY nicht gesetzt — Register nicht prüfbar, Versand nicht freigegeben" };
   }
+  // Gelesen wird über PostgREST, nicht über den eigenen GET-Endpunkt.
+  //
+  // Der Endpunkt vergleicht den übergebenen Schlüssel per String gegen
+  // SUPABASE_SERVICE_ROLE_KEY aus seiner Runtime. Supabase injiziert dort
+  // inzwischen das `sb_secret_…`-Format, während ein aus dem Dashboard kopierter
+  // service_role-Schlüssel ein Legacy-JWT sein kann. Beide sind gültig, aber
+  // nicht dieselbe Zeichenkette — der Vergleich schlug fehl, obwohl der
+  // Schlüssel volle Rechte hatte. PostgREST prüft die Rolle statt der
+  // Zeichenkette und akzeptiert daher beide Formate.
+  const restUrl = `${new URL(postUrl).origin}/rest/v1/marketing_unsubscribes?select=token&limit=1`;
   try {
-    const res = await fetchFn(`${postUrl}?since=2099-01-01T00:00:00Z`, {
+    const res = await fetchFn(restUrl, {
       method: "GET",
-      headers: { authorization: `Bearer ${serviceKey}` },
+      headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}` },
     });
-    if (res.status >= 500) {
-      return { id, label, ok: false, blocking: true, detail: `HTTP ${res.status} — Register nicht verfügbar (Migration 151 angewendet?). Abmeldungen würden verloren gehen.` };
+    if (res.status === 404) {
+      return { id, label, ok: false, blocking: true, detail: "Tabelle marketing_unsubscribes existiert nicht — Abmeldungen würden verloren gehen (Migration 151)." };
     }
     if (res.status === 401 || res.status === 403) {
-      return { id, label, ok: false, blocking: true, detail: `HTTP ${res.status} — Service-Role-Key wird abgelehnt` };
+      return { id, label, ok: false, blocking: true, detail: `HTTP ${res.status} — Schlüssel hat keine service_role-Rechte auf das Register` };
     }
     if (!res.ok) {
-      return { id, label, ok: false, blocking: true, detail: `HTTP ${res.status} — unerwartete Antwort des Registers` };
+      return { id, label, ok: false, blocking: true, detail: `HTTP ${res.status} — Register nicht lesbar` };
     }
-    return { id, label, ok: true, blocking: true, detail: "Register antwortet, Abmeldungen werden gespeichert" };
+    return { id, label, ok: true, blocking: true, detail: "Register lesbar, Abmeldungen werden gespeichert" };
   } catch (e) {
     return { id, label, ok: false, blocking: true, detail: `nicht erreichbar — ${(e as Error).message}` };
   }
@@ -345,20 +362,33 @@ export async function runPreflight(opts: PreflightOptions): Promise<PreflightRes
   // 3–7) Approval queue → approved-only → opt-out → dedupe → batch limit.
   const statusMap = loadLeadStatus(opts.storage);
   const accounts = opts.accounts ?? loadAccounts(opts.accountsPath);
-  const sel = selectSendable(accounts, statusMap, opts.batchSize);
+  let sel = selectSendable(accounts, statusMap, opts.batchSize);
+
+  // MX-Auflösung ZUERST, damit unzustellbare Adressen aus der Auswahl fallen,
+  // bevor das Versandlimit gemeldet wird — sonst weist der Preflight 20 aus und
+  // 19 kommen an. Die entfernten Adressen werden als deadMx durchgereicht, der
+  // Runner übergibt sie an den Versand, damit beide dieselbe Menge sehen.
+  let deadMx: string[] = [];
+  let mxCheck: PreflightCheck | null = null;
+  if (!opts.skipNetwork) {
+    const mx = await recipientMxCheck(
+      sel.batch.map((a) => a.email as string),
+      opts.mxResolve ?? dnsMxResolver,
+    );
+    deadMx = mx.deadEmails;
+    mxCheck = mx;
+    if (deadMx.length) {
+      sel = selectSendable(accounts, statusMap, opts.batchSize, new Set(deadMx.map((e) => e.toLowerCase())));
+    }
+  }
 
   checks.push({ id: "approval-queue", label: "Approval Queue geladen", ok: accounts.length > 0, blocking: true, detail: accounts.length > 0 ? `${accounts.length} CRM-Leads · ${Object.keys(statusMap).length} mit Status` : "keine CRM-Leads geladen" });
   checks.push({ id: "approved-only", label: "Nur 'approved' berücksichtigt", ok: sel.approved > 0, blocking: true, detail: `${sel.approved} approved` });
   checks.push({ id: "opt-out", label: "Opt-out ausgeschlossen", ok: true, blocking: false, detail: `${sel.blockedUnsub} abgemeldete Kontakte blockiert` });
   checks.push({ id: "dedupe", label: "Doppelte Empfänger ausgeschlossen", ok: true, blocking: false, detail: `${sel.dupDropped} Duplikate · ${sel.noEmailDropped} ohne Adresse entfernt` });
   checks.push({ id: "already-contacted", label: "Bereits kontaktierte Adressen ausgeschlossen", ok: true, blocking: false, detail: `${sel.contactedDropped} Adressen aus früheren Batches entfernt` });
-  if (!opts.skipNetwork) {
-    checks.push(await recipientMxCheck(
-      sel.batch.map((a) => a.email as string),
-      opts.mxResolve ?? dnsMxResolver,
-    ));
-  }
-  checks.push({ id: "batch-limit", label: "Versandlimit", ok: sel.batch.length > 0, blocking: true, detail: `${sel.batch.length} zu senden (Limit ${opts.batchSize} · ${sel.afterDedupe} verfügbar)` });
+  if (mxCheck) checks.push(mxCheck);
+  checks.push({ id: "batch-limit", label: "Versandlimit", ok: sel.batch.length > 0, blocking: true, detail: `${sel.batch.length} zu senden (Limit ${opts.batchSize} · ${sel.afterDedupe} verfügbar)${deadMx.length ? ` · ${deadMx.length} unzustellbar entfernt` : ""}` });
 
   // 8) Report file — a durable per-batch artefact must be creatable.
   const stem = reportStem(opts.campaignLabel, timestamp);
@@ -389,6 +419,7 @@ export async function runPreflight(opts: PreflightOptions): Promise<PreflightRes
     },
     reportStem: stem,
     reportDir: reportDirPath,
+    deadMx,
   };
 
   // Persist the preflight snapshot immediately (check 8's artefact).

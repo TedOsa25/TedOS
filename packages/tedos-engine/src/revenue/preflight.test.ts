@@ -261,8 +261,8 @@ describe("optOutRegisterCheck: die Abmeldung muss wirklich gespeichert werden", 
   const URL_ = "https://example.supabase.co/functions/v1/marketing-unsubscribe";
   const fake = (status: number) => (async () => ({ status, ok: status >= 200 && status < 300 })) as unknown as typeof fetch;
 
-  test("5xx blockiert den Versand — die Tabelle fehlt, Abmeldungen gingen verloren", async () => {
-    const c = await optOutRegisterCheck(URL_, "svc", fake(500));
+  test("404 blockiert den Versand — die Tabelle fehlt, Abmeldungen gingen verloren", async () => {
+    const c = await optOutRegisterCheck(URL_, "svc", fake(404));
     assert.equal(c.ok, false);
     assert.equal(c.blocking, true);
     assert.match(c.detail, /151/);
@@ -284,5 +284,43 @@ describe("optOutRegisterCheck: die Abmeldung muss wirklich gespeichert werden", 
   test("ohne Service-Key ist das Register nicht prüfbar — kein Versand", async () => {
     // Lieber ein blockierter Batch als einer, dessen Abmeldungen im Nichts landen.
     assert.equal((await optOutRegisterCheck(URL_, undefined, fake(200))).ok, false);
+  });
+});
+
+describe("Empfänger ohne MX fliegen aus dem Batch statt ihn zu stoppen", () => {
+  const acctE = (id: string, email: string, i: number) =>
+    normalize({ id, name: `Co ${id}`, industry: "Automotive", email, prio: "A", score: 80 }, i);
+
+  test("selectSendable entfernt ausgeschlossene Adressen, der Rest bleibt", () => {
+    const accounts = [acctE("a", "info@lebt.de", 0), acctE("b", "info@totedomain.de", 1), acctE("c", "info@auch.de", 2)];
+    const storage = new InMemoryStorage();
+    approveLeads(storage, ["a", "b", "c"]);
+    const sel = selectSendable(accounts, loadLeadStatus(storage), 20, new Set(["info@totedomain.de"]));
+    assert.equal(sel.undeliverableDropped, 1);
+    assert.deepEqual(sel.batch.map((x) => x.email), ["info@lebt.de", "info@auch.de"]);
+  });
+
+  test("recipientMxCheck meldet die betroffenen Adressen zum Ausschluss", async () => {
+    const resolver = async (d: string) => (d === "totedomain.de" ? [] : ["mx." + d]);
+    const c = await recipientMxCheck(["info@lebt.de", "info@totedomain.de"], resolver);
+    assert.deepEqual(c.deadEmails, ["info@totedomain.de"]);
+    assert.equal(c.blocking, false, "ein toter Empfänger darf die anderen 19 nicht aufhalten");
+    assert.match(c.detail, /aus dem Batch entfernt/);
+  });
+
+  test("der Batch schrumpft, statt zu scheitern — 19 statt 20 gehen raus", async () => {
+    const accounts = Array.from({ length: 20 }, (_, i) => acctE(`x${i}`, `info@d${i}.de`, i));
+    const storage = new InMemoryStorage();
+    approveLeads(storage, accounts.map((a) => a.id));
+    const pf = await runPreflight({
+      ...base, storage, accounts, batchSize: 20,
+      urlFetch: async () => ({ status: 200 }),
+      mxResolve: async (d) => (d === "d7.de" ? [] : ["mx." + d]),
+      skipNetwork: false,
+      dryRun: true,
+    });
+    assert.deepEqual(pf.deadMx, ["info@d7.de"]);
+    assert.equal(pf.eligibility.toSend, 19);
+    assert.equal(pf.checks.find((c) => c.id === "batch-limit")?.ok, true, "der Batch muss trotzdem laufen");
   });
 });

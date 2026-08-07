@@ -302,6 +302,7 @@ export interface SendableSelection {
   afterDedupe: number;   // withEmail AND a unique (lower-cased) address
   dupDropped: number;    // duplicate recipients removed (within this batch)
   contactedDropped: number; // address already reached in an EARLIER batch
+  undeliverableDropped: number; // address on a domain that cannot accept mail (no MX)
   noEmailDropped: number;// approved leads without an address removed
   blockedUnsub: number;  // opted-out leads present in the CRM (defence-in-depth)
 }
@@ -378,6 +379,13 @@ export function selectSendable(
   accounts: Account[],
   statusMap: Record<string, LeadRecord>,
   limit: number,
+  /**
+   * Adressen, die dieser Batch NICHT anschreiben darf — auch wenn sie approved
+   * und sonst sauber sind. Genutzt für Empfänger-Domains ohne MX-Record: die
+   * können Mail nicht annehmen, jeder Versand dorthin ist ein sicherer Bounce.
+   * Der Preflight ermittelt sie und reicht sie hier durch.
+   */
+  excludeEmails: Set<string> = new Set(),
 ): SendableSelection {
   const ranked = prioritize(accounts);
   const blockedUnsub = ranked.filter((a) => statusMap[a.id]?.status === "unsubscribed").length;
@@ -395,9 +403,11 @@ export function selectSendable(
   // Within-batch: the same address may still appear under two approved ids.
   const seen = new Set<string>();
   let dupDropped = 0;
+  let undeliverableDropped = 0;
   const deduped = unreached.filter((a) => {
     const key = (a.email as string).trim().toLowerCase();
     if (seen.has(key)) { dupDropped += 1; return false; }
+    if (excludeEmails.has(key)) { undeliverableDropped += 1; return false; }
     seen.add(key);
     return true;
   });
@@ -408,6 +418,7 @@ export function selectSendable(
     afterDedupe: deduped.length,
     dupDropped,
     contactedDropped,
+    undeliverableDropped,
     noEmailDropped: approvedList.length - withEmailList.length,
     blockedUnsub,
   };
@@ -439,6 +450,8 @@ export interface BatchSendOptions {
   campaignLabel?: string;
   /** Auto-disarm the master switch after the batch (default true). */
   disarmAfter?: boolean;
+  /** Adressen, die dieser Batch überspringen muss (Preflight: Domains ohne MX). */
+  excludeEmails?: Set<string>;
 }
 
 /**
@@ -486,10 +499,11 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
   // duplicate-recipient exclusion → batch-size cap. Same function the preflight
   // runs, so what preflight cleared is exactly what sends.
   const accounts = opts.accounts ?? loadAccounts(opts.accountsPath);
-  const sel = selectSendable(accounts, statusMap, effectiveSize);
+  const sel = selectSendable(accounts, statusMap, effectiveSize, opts.excludeEmails ?? new Set());
   if (sel.blockedUnsub) notes.push(`${sel.blockedUnsub} unsubscribed lead(s) blocked (opt-out)`);
   if (sel.noEmailDropped) notes.push(`${sel.noEmailDropped} approved lead(s) without a deliverable address excluded`);
   if (sel.dupDropped) notes.push(`${sel.dupDropped} duplicate recipient(s) excluded`);
+  if (sel.undeliverableDropped) notes.push(`${sel.undeliverableDropped} recipient(s) on a domain without MX excluded (guaranteed bounce)`);
   if (accounts.length === 0) notes.push("no accounts loaded (real CRM file missing?) — nothing to send");
 
   const batch = sel.batch;
