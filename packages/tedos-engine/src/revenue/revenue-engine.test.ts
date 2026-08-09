@@ -266,3 +266,36 @@ describe("campaign fallback from industry", () => {
     }
   });
 });
+
+describe("Intro erfindet keine Kundenbeziehung", () => {
+  const lead = (industry: string, extra: Record<string, unknown> = {}) =>
+    normalize({ id: "T1", name: "Musterfirma GmbH", industry, email: "info@musterfirma.de", ...extra } as never, 0);
+
+  test("ohne bekannte Kunden wird die Branche genannt, nicht 'Industriekunden'", () => {
+    // Waldemar Link liefert Implantate an Kliniken, Kaldewei Wannen an den
+    // Sanitärgroßhandel — "beliefert zahlreiche Industriekunden" war dort falsch.
+    for (const branche of ["Medizintechnik", "SHK", "Beleuchtung", "Bahntechnik", "Papier"]) {
+      const o = buildOpportunity(lead(branche), () => "2026-08-09T09:00:00.000Z", "E");
+      assert.doesNotMatch(o.emailHtml, /Industriekunden beliefert/,
+        `${branche}: behauptet Industriekunden ohne Beleg`);
+      assert.ok(o.emailHtml.includes(`im Bereich ${branche} fertigt`),
+        `${branche}: nennt die belegte Branche nicht`);
+    }
+  });
+
+  test("echte OEM-Namen schlagen den Branchen-Fallback", () => {
+    const o = buildOpportunity(
+      lead("Medizintechnik", { supplier_pressure: "Beliefert BMW und Bosch" }),
+      () => "2026-08-09T09:00:00.000Z", "E",
+    );
+    assert.match(o.emailHtml, /für BMW und Bosch produziert/);
+    assert.doesNotMatch(o.emailHtml, /im Bereich Medizintechnik fertigt/);
+  });
+
+  test("Satz 2 bezieht sich sauber auf Satz 1", () => {
+    const o = buildOpportunity(lead("Medizintechnik"), () => "2026-08-09T09:00:00.000Z", "E");
+    // "Genau diese Unternehmen" hätte ohne genannte Kunden keinen Bezug.
+    assert.doesNotMatch(o.emailText, /Genau diese Unternehmen/);
+    assert.match(o.emailText, /Dort verlangen Kunden/);
+  });
+});

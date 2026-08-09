@@ -123,14 +123,31 @@ function painPhrase(a: Account, bucket: Bucket): string {
 }
 
 /** Sentence 1 tail when NO real customer/OEM names exist — anchored on the branch. */
-function whoByBucket(bucket: Bucket): string {
+/**
+ * Erster Satz, wenn weder OEMs noch Kunden im CRM stehen.
+ *
+ * Der Default sagte früher "zahlreiche Industriekunden beliefert" — eine
+ * konkrete Behauptung über das Geschäftsmodell, obwohl an dieser Stelle genau
+ * NICHTS über die Kunden bekannt ist. classifyIndustry kennt nur fünf Branchen;
+ * Medizintechnik, SHK, Beleuchtung, Bahntechnik, Papier und Gummi landen alle
+ * im Default. Waldemar Link liefert Implantate an Kliniken, Kaldewei Wannen an
+ * den Sanitärgroßhandel — bei beiden war der Satz schlicht falsch, und zwar im
+ * ersten Satz, wo Glaubwürdigkeit entsteht.
+ *
+ * Jetzt wird nur noch die BRANCHE genannt, die im CRM steht und damit belegt
+ * ist. Über die Kunden wird nichts behauptet, was wir nicht wissen.
+ */
+function whoByBucket(bucket: Bucket, industry: string): string {
   switch (bucket) {
     case "maschinenbau": return "zahlreiche Industriekunden beliefert";
     case "chemie": return "internationale Industriekunden beliefert";
     case "logistik": return "für Unternehmen mit steigenden Nachhaltigkeitsanforderungen tätig ist";
     case "elektronik":
     case "automotive": return "für internationale Industrieunternehmen produziert";
-    default: return "zahlreiche Industriekunden beliefert";
+    default: {
+      const b = String(industry ?? "").trim();
+      return b ? `im Bereich ${b} fertigt` : "produzierend tätig ist";
+    }
   }
 }
 
@@ -143,7 +160,9 @@ function sentence2(kind: "oems" | Bucket, pain: string): string {
     case "chemie": return `Genau diese Unternehmen erwarten heute ${pain}.`;
     case "logistik": return `Immer mehr Auftraggeber erwarten inzwischen ${pain}.`;
     case "elektronik": return `Genau diese Kunden verlangen zunehmend ${pain}.`;
-    default: return `Genau diese Unternehmen verlangen inzwischen ${pain}.`;
+    // "diese Unternehmen" hätte keinen Bezug mehr, seit Satz 1 im Default die
+    // Branche nennt statt erfundener Kunden — daher "dort".
+    default: return `Dort verlangen Kunden inzwischen ${pain}.`;
   }
 }
 
@@ -169,7 +188,7 @@ export function researchIntro(a: Account): string {
     who = bucket === "maschinenbau" || bucket === "chemie"
       ? `unter anderem ${custs.join(" und ")} beliefert`
       : `unter anderem für ${custs.join(" und ")} produziert`;
-  } else who = whoByBucket(bucket);
+  } else who = whoByBucket(bucket, a.industry);
 
   // Sentence 2 — strongest pain, phrased for the audience/branch.
   const kind: "oems" | Bucket = oems ? "oems" : auto ? "automotive" : bucket;
