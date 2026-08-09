@@ -96,7 +96,7 @@ const signal = (v?: unknown): boolean => {
 };
 
 /** Coarse industry bucket derived from the account's real industry string. */
-type Bucket = "automotive" | "maschinenbau" | "chemie" | "logistik" | "elektronik" | "generic";
+type Bucket = "automotive" | "maschinenbau" | "chemie" | "logistik" | "elektronik" | "konsumgueter" | "generic";
 function classifyIndustry(industry: string): Bucket {
   const s = String(industry ?? "").toLowerCase();
   if (/automotive|mobility|fahrzeug|automobil|\bkfz\b/.test(s)) return "automotive";
@@ -104,6 +104,10 @@ function classifyIndustry(industry: string): Bucket {
   if (/chemie|chemical|kunststoff|plastic|polymer|pharma/.test(s)) return "chemie";
   if (/logistik|logistics|transport|spedition|fracht|freight/.test(s)) return "logistik";
   if (/elektro|electronic|elektronik|semiconductor|halbleiter/.test(s)) return "elektronik";
+  // Konsumgüter verkaufen an Handel und Endkunden, nicht an Industriekunden.
+  // Der Druck kommt dort von Handelsketten und Ausschreibungen, die CCF- und
+  // EPD-Daten als Standard in der Beschaffung verlangen.
+  if (/lebensmittel|getr[äa]nk|food|beverage|kosmetik|cosmetic|m[öo]bel|furniture|textil|bekleidung|haushalt|consumer|s[üu][ßs]waren|backwaren|fleisch|molkerei|brauerei|spielzeug/.test(s)) return "konsumgueter";
   return "generic";
 }
 
@@ -118,6 +122,7 @@ function painPhrase(a: Account, bucket: Bucket): string {
     case "chemie": return "transparente CO₂-Daten entlang der gesamten Lieferkette";
     case "logistik": return "belastbare Scope-1-, Scope-2- und Scope-3-Daten";
     case "elektronik": return "standardisierte Product Carbon Footprints";
+    case "konsumgueter": return "produktbezogene CO₂-Daten und Umweltproduktdeklarationen";
     default: return "belastbare CO₂- und Product-Carbon-Footprint-Daten";
   }
 }
@@ -144,6 +149,10 @@ function whoByBucket(bucket: Bucket, industry: string): string {
     case "logistik": return "für Unternehmen mit steigenden Nachhaltigkeitsanforderungen tätig ist";
     case "elektronik":
     case "automotive": return "für internationale Industrieunternehmen produziert";
+    case "konsumgueter": {
+      const k = String(industry ?? "").trim();
+      return k ? `im Bereich ${k} produziert` : "Konsumgüter herstellt";
+    }
     default: {
       const b = String(industry ?? "").trim();
       return b ? `im Bereich ${b} fertigt` : "produzierend tätig ist";
@@ -160,6 +169,7 @@ function sentence2(kind: "oems" | Bucket, pain: string): string {
     case "chemie": return `Genau diese Unternehmen erwarten heute ${pain}.`;
     case "logistik": return `Immer mehr Auftraggeber erwarten inzwischen ${pain}.`;
     case "elektronik": return `Genau diese Kunden verlangen zunehmend ${pain}.`;
+    case "konsumgueter": return `Handelskunden und Ausschreibungen fordern dort zunehmend ${pain}.`;
     // "diese Unternehmen" hätte keinen Bezug mehr, seit Satz 1 im Default die
     // Branche nennt statt erfundener Kunden — daher "dort".
     default: return `Dort verlangen Kunden inzwischen ${pain}.`;
@@ -217,7 +227,10 @@ export const HEYCARBO_VALUE: Record<Variant, string> = {
  */
 export const HEYCARBO_NEED: Record<string, string> = {
   "catena-x": "Catena-X-Anfragen verlangen den PCF je Teilenummer nach ISO 14067 – nicht auf Unternehmensebene.",
-  pcf: "Product Carbon Footprints je Artikel sind bei Industriekunden zunehmend Teil der Vergabeentscheidung.",
+  // "bei Industriekunden" stimmte für Konsumgüter nicht — dort entscheidet der
+  // Handel. "in Ausschreibungen" trägt in beiden Welten und behauptet nichts
+  // über die Abnehmerstruktur.
+  pcf: "Product Carbon Footprints je Artikel sind in Ausschreibungen zunehmend Teil der Vergabeentscheidung.",
   csrd: "Für die CSRD-Berichtspflicht müssen Scope 1 bis 3 prüffähig dokumentiert sein.",
   "supplier-management": "Ihre Kunden fordern Lieferantendaten für ihre eigene Scope-3-Bilanz an – meist mit Frist.",
   esg: "EcoVadis- und CDP-Fragebögen kosten pro Antwort schnell mehrere Arbeitstage.",

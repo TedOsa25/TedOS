@@ -299,3 +299,25 @@ describe("Intro erfindet keine Kundenbeziehung", () => {
     assert.match(o.emailText, /Dort verlangen Kunden/);
   });
 });
+
+describe("Konsumgüter: Handel statt Industriekunden", () => {
+  const lead = (industry: string) =>
+    normalize({ id: "K1", name: "Musterfirma GmbH", industry, email: "info@musterfirma.de" } as never, 0);
+
+  test("Konsumgüter behaupten nie Industriekunden", () => {
+    // Bahlsen (Kekse), Kneipp (Drogerie), Nobilia (Küchen für Endkunden) —
+    // deren Druck kommt vom Handel, nicht von Industriekunden.
+    for (const b of ["Lebensmittel", "Kosmetik", "Möbel", "Textil"]) {
+      const o = buildOpportunity(lead(b), () => "2026-08-09T09:00:00.000Z", "E");
+      // Nur der Einstieg wird geprüft: der Value-Absatz ist kampagnengesteuert.
+      assert.doesNotMatch(o.emailText.split("\n").filter(Boolean)[1] ?? "", /Industriekunden/, `${b}: behauptet Industriekunden`);
+      assert.match(o.emailText, /Handelskunden und Ausschreibungen/, `${b}: nennt den Treiber nicht`);
+    }
+  });
+
+  test("Maschinenbau behält die Industriekunden-Aussage — dort stimmt sie", () => {
+    // Grenzebach, Heller, EMAG bauen Anlagen FÜR Industriekunden.
+    const o = buildOpportunity(lead("Maschinenbau"), () => "2026-08-09T09:00:00.000Z", "E");
+    assert.match(o.emailHtml, /Industriekunden beliefert/);
+  });
+});
