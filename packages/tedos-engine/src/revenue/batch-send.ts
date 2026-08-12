@@ -25,6 +25,7 @@ import { buildOpportunity } from "./revenue-engine.js";
 import { activeBrandProfile } from "./brand-profile.js";
 import { unsubscribeToken, unsubscribeUrl } from "./email-template.js";
 import { type Variant, DEFAULT_VARIANT } from "./email-copy.js";
+import { assignExperiment, experimentConfig, describeExperiment } from "./experiment.js";
 import {
   dispatch, getProvider, isSendArmed, selectedProviderName,
   type EmailProvider, type OutboundEmail, type ProviderName, type SendStatus,
@@ -76,6 +77,10 @@ export interface LeadRecord {
   unsubscribe_reason?: string;
   /** Set when a permanent (5.x.x) bounce suppressed this address. */
   bounced_at?: string;
+  /** Freitext-Vermerk (Dubletten-Stilllegung, tote Domain, manuelle Notiz). */
+  note?: string;
+  /** Welche Betreffvariante versendet wurde (A/B-Auswertung). */
+  subjectIndex?: number;
   /** Zeitpunkte der Nachfassmails (max. zwei). */
   followup1_at?: string;
   followup2_at?: string;
@@ -515,10 +520,17 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
   const messageIds: string[] = [];
   let bccCopies = 0;
 
+  const expCfg = experimentConfig();
+  notes.push(`A/B: ${describeExperiment(expCfg)}`);
+
   for (const account of batch) {
     // Defence-in-depth: never dispatch to an opted-out lead, even if it slipped in.
     if (statusMap[account.id]?.status === "unsubscribed") continue;
-    const opp = buildOpportunity(account, clock, variant);
+    // Deterministisch je Lead — eine spätere Nachfassmail trifft denselben Arm.
+    // opts.variant (Tests / gezielter Einzelversand) hat Vorrang.
+    const exp = assignExperiment(account.id, expCfg);
+    const useVariant = opts.variant ?? exp.variant;
+    const opp = buildOpportunity(account, clock, useVariant);
     const now = clock();
     const email: OutboundEmail = {
       to: account.email as string,
@@ -527,7 +539,7 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
       fromName: SENDER.name,
       replyTo: REPLY_TO,
       ...(bccAddress ? { bcc: bccAddress } : {}),
-      subject: opp.subjects[0] ?? activeBrandProfile().copy.queueSubjectFallback(account.company),
+      subject: opp.subjects[exp.subjectIndex] ?? opp.subjects[0] ?? activeBrandProfile().copy.queueSubjectFallback(account.company),
       html: opp.emailHtml,
       // multipart/alternative — HTML-only bulk mail is penalized by every major
       // spam filter and is unreadable in text-only clients.
@@ -568,7 +580,8 @@ export async function sendApprovedBatch(opts: BatchSendOptions): Promise<BatchRe
       smtpStatus: result.status,
       campaign: opp.campaign,
       industry: account.industry,
-      variant,
+      variant: useVariant,
+      subjectIndex: exp.subjectIndex,
       ...(opts.campaignLabel ? { batchCampaign: opts.campaignLabel } : {}),
       ...(result.messageId ? { messageId: result.messageId } : {}),
       ...(result.status === "error" && result.detail ? { error: result.detail } : {}),
