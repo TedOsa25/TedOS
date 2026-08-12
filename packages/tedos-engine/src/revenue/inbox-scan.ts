@@ -20,7 +20,7 @@ import { ImapFlow } from "imapflow";
 
 import { createStorage } from "./../storage.js";
 import { loadAccounts } from "./accounts.js";
-import { markBounced, unsubscribeLead } from "./batch-send.js";
+import { markBounced, unsubscribeLead, recordInboxScan } from "./batch-send.js";
 import { isOptOutMessage } from "./inbox-classify.js";
 
 /** Opt-in write mode: suppress hard-bounced addresses in the lead store. */
@@ -311,6 +311,16 @@ async function main(): Promise<void> {
     }
   }
   console.log(`\n✅ ${optOutWritten} Lead(s) auf "unsubscribed" gesetzt — dauerhaft gesperrt.`);
+
+  // Lauf festhalten: der Follow-up-Versand verweigert den Dienst, solange kein
+  // frischer Scan vorliegt — sonst stünden Antwortende noch auf "sent".
+  recordInboxScan(storage, {
+    at: new Date().toISOString(),
+    bounces: changed,
+    optOuts: optOutWritten,
+    replies: by.reply.length,
+  });
+  console.log(`📌 Scan-Zeitpunkt festgehalten — Nachfassen ist damit für 72 h freigegeben.`);
 }
 
 main().catch((e) => { console.error("inbox-scan failed:", (e as Error).message); process.exitCode = 1; });

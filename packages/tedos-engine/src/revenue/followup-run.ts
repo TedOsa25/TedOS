@@ -1,0 +1,158 @@
+// NACHFASS-VERSAND — die zweite Stufe der Sequenz.
+//
+// In der Kaltakquise kommt ein erheblicher Teil der Antworten erst aus den
+// Nachfassmails. followUp1/followUp2 werden längst für jeden Lead erzeugt, es
+// gab dafür nur nie einen Versandweg — 1.614 Kontakte warten unbeantwortet.
+//
+// SICHERUNGEN (in dieser Reihenfolge)
+//   1. POSTEINGANGS-GATE. Ohne frischen inbox:scan wird gar nicht erst
+//      ausgewählt. Wer geantwortet oder sich abgemeldet hat, steht sonst noch
+//      auf "sent" und bekäme ein "haben Sie meine Mail gesehen?" — der
+//      sicherste Weg, einen warmen Kontakt zu verbrennen bzw. bei einer
+//      Abmeldung ein Rechtsverstoß.
+//   2. Nur Status "sent". Jede Reaktion (replied/unsubscribed/bounced/
+//      demo-booked/won/lost) verlässt diesen Status und damit die Sequenz.
+//   3. Maximal ZWEI Nachfassmails je Lead, danach ist Schluss.
+//   4. Mindestabstand in WERKTAGEN, nicht Kalendertagen.
+//   5. Derselbe Preflight wie beim Erstkontakt (SMTP · DNS · Abmelde-Register
+//      · Landingpages · MX), inklusive Entfernen unzustellbarer Empfänger.
+//
+//   TEDOS_STORAGE_PATH=./.revenue-state ./send-batch.sh … (Erstkontakt)
+//   npm run followup:send            # Vorschau
+//   npm run followup:send -- --apply # versenden (zusätzlich REVENUE_SEND_ENABLED=1)
+
+import { createStorage } from "./../storage.js";
+import { loadAccounts } from "./accounts.js";
+import { activeBrandProfile } from "./brand-profile.js";
+import { selectedProviderName, getProvider, isSendArmed, dispatch, type OutboundEmail } from "./sending.js";
+import { buildOpportunity } from "./revenue-engine.js";
+import {
+  loadLeadStatus, selectFollowUps, followUpGate, listUnsubscribeHeaders,
+  type LeadRecord,
+} from "./batch-send.js";
+import { runPreflight, formatPreflight } from "./preflight.js";
+import { writeReportFile } from "./report-file.js";
+
+const APPLY = process.argv.includes("--apply");
+const LIMIT = Number(process.env.REVENUE_FOLLOWUP_SIZE ?? 20);
+const MIN1 = Number(process.env.REVENUE_FOLLOWUP_MIN1 ?? 4);
+const MIN2 = Number(process.env.REVENUE_FOLLOWUP_MIN2 ?? 5);
+const SENDER = {
+  email: process.env.REVENUE_FROM_EMAIL ?? activeBrandProfile().identity.senderEmail,
+  name: process.env.REVENUE_FROM_NAME ?? activeBrandProfile().identity.senderName,
+};
+
+async function main(): Promise<void> {
+  if (!process.env.TEDOS_STORAGE_PATH) {
+    console.log("⚠ TEDOS_STORAGE_PATH nicht gesetzt — Abbruch.");
+    process.exitCode = 1;
+    return;
+  }
+  const storage = createStorage();
+  const now = new Date().toISOString();
+
+  // === 1) Posteingangs-Gate — vor allem anderen ==============================
+  const gate = followUpGate(storage, now);
+  console.log(`\n── Posteingangs-Gate ──\n  ${gate.ok ? "✅" : "⛔"} ${gate.detail}`);
+  if (!gate.ok) {
+    console.log("\n⛔ Abbruch: Ohne ausgewerteten Posteingang darf nicht nachgefasst werden.");
+    process.exitCode = 1;
+    return;
+  }
+
+  const accounts = loadAccounts();
+  const statusMap = loadLeadStatus(storage);
+  const sel = selectFollowUps(accounts, statusMap, { limit: LIMIT, now, minWorkdays1: MIN1, minWorkdays2: MIN2 });
+
+  console.log(`\n── Auswahl ──`);
+  console.log(`  Kontaktiert (Status "sent") : ${sel.sent}`);
+  console.log(`  Fällig                      : ${sel.eligible}`);
+  console.log(`  Noch zu früh                : ${sel.tooEarly}`);
+  console.log(`  Sequenz beendet (2 gesendet): ${sel.exhausted}`);
+  for (const [k, v] of Object.entries(sel.excluded)) console.log(`  Ausgeschlossen (${k}): ${v}`);
+  console.log(`  → in diesem Lauf            : ${sel.batch.length}`);
+  if (!sel.batch.length) { console.log("\nNichts zu tun."); return; }
+
+  for (const c of sel.batch) {
+    console.log(`   ${c.stage === 1 ? "FU1" : "FU2"} · ${String(c.account.company).slice(0, 38).padEnd(40)} ${c.workdays} WT · ${c.account.email}`);
+  }
+
+  // === 2) Preflight — identisch zum Erstkontakt ==============================
+  const pf = await runPreflight({
+    storage, batchSize: LIMIT,
+    senderEmail: process.env.REVENUE_FROM_EMAIL ?? process.env.SMTP_USER ?? SENDER.email,
+    provider: selectedProviderName(),
+    armed: isSendArmed() && APPLY,
+    accounts,
+    campaignLabel: `followup-${new Date().toISOString().slice(0, 10)}`,
+    clock: () => now,
+  });
+  // "approved" bezieht sich auf den Erstkontakt und ist beim Nachfassen
+  // naturgemäß leer — diese eine Prüfung zählt hier nicht.
+  const blocking = pf.checks.filter((c) => c.blocking && !c.ok && c.id !== "approved-only" && c.id !== "batch-limit");
+  console.log("\n" + formatPreflight(pf));
+  if (blocking.length) {
+    console.log(`\n⛔ Abbruch: ${blocking.map((c) => c.label).join(", ")}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const dead = new Set(pf.deadMx.map((e) => e.toLowerCase()));
+  const batch = sel.batch.filter((c) => !dead.has(String(c.account.email).toLowerCase()));
+  if (batch.length !== sel.batch.length) {
+    console.log(`\n⚠ ${sel.batch.length - batch.length} Empfänger ohne MX aus dem Nachfassen entfernt.`);
+  }
+
+  if (!APPLY) {
+    console.log("\n(Vorschau — nichts versendet. Mit --apply und REVENUE_SEND_ENABLED=1 senden.)\n");
+    return;
+  }
+
+  // === 3) Versand ============================================================
+  const provider = getProvider();
+  const results: { id: string; company: string; email: string; stage: number; status: string; error?: string }[] = [];
+  for (const c of batch) {
+    const a = c.account;
+    const opp = buildOpportunity(a, () => now, "E");
+    const body = c.stage === 1 ? opp.followUp1 : opp.followUp2;
+    const email: OutboundEmail = {
+      to: a.email as string,
+      ...(a.company ? { toName: a.company } : {}),
+      from: SENDER.email,
+      fromName: SENDER.name,
+      replyTo: process.env.REVENUE_REPLY_TO ?? SENDER.email,
+      // Bezug auf die erste Mail — kein neuer Betreff, damit der Verlauf
+      // im Postfach des Empfängers zusammenbleibt.
+      subject: `Re: ${opp.subjects[0] ?? a.company}`,
+      html: `<div style="font-family:Inter,Arial,sans-serif;font-size:16px;line-height:1.6;color:#16172B">${body.replace(/\n/g, "<br>")}</div>`,
+      text: body,
+      headers: listUnsubscribeHeaders(opp.unsubscribeUrl),
+      tags: ["revenue-followup", `stage-${c.stage}`],
+    };
+    const r = await dispatch(email, provider);
+    const rec: LeadRecord = { ...(statusMap[a.id] as LeadRecord) };
+    if (r.status === "sent") {
+      if (c.stage === 1) rec.followup1_at = now; else rec.followup2_at = now;
+    } else if (r.detail) {
+      rec.error = r.detail;
+    }
+    statusMap[a.id] = rec;
+    results.push({ id: a.id, company: a.company, email: a.email as string, stage: c.stage, status: r.status, ...(r.detail ? { error: r.detail } : {}) });
+  }
+  storage.save("revenue-lead-status", statusMap);
+
+  const sent = results.filter((r) => r.status === "sent").length;
+  const errors = results.filter((r) => r.status === "error");
+  console.log(`\n── Nachfass-Bericht ──`);
+  console.log(`  Versendet : ${sent} / ${results.length}`);
+  console.log(`  Fehler    : ${errors.length}`);
+  for (const e of errors) console.log(`    ⛔ ${e.company} — ${e.error}`);
+  try {
+    const p = writeReportFile(pf.reportStem, "followup.json", JSON.stringify({ gate, selection: { ...sel, batch: undefined }, results }, null, 2));
+    console.log(`\n📄 Report: ${p}`);
+  } catch { /* nicht fatal */ }
+  process.env.REVENUE_SEND_ENABLED = "0";
+  console.log(`\n✅ ${sent} Nachfassmails versendet. Master-Switch zurückgesetzt.`);
+}
+
+main().catch((e) => { console.error("followup-run failed:", (e as Error).message); process.exitCode = 1; });

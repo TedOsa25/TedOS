@@ -76,6 +76,9 @@ export interface LeadRecord {
   unsubscribe_reason?: string;
   /** Set when a permanent (5.x.x) bounce suppressed this address. */
   bounced_at?: string;
+  /** Zeitpunkte der Nachfassmails (max. zwei). */
+  followup1_at?: string;
+  followup2_at?: string;
 }
 
 /** Reply phrases that trigger an automatic opt-out (case-insensitive, whole word). */
@@ -633,4 +636,136 @@ export function formatBatchReport(r: BatchReport): string {
   if (r.notes.length) L.push(`Hinweise             : ${r.notes.join(" · ")}`);
   L.push("───────────────────────────────────────────────────────────");
   return L.join("\n");
+}
+
+// ── Nachfassen ───────────────────────────────────────────────────────────────
+
+/** Werktage zwischen zwei Zeitpunkten (Sa/So zählen nicht). */
+export function workdaysBetween(from: string, to: string): number {
+  const a = new Date(from), b = new Date(to);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b <= a) return 0;
+  let d = 0;
+  const c = new Date(a);
+  while (c < b) {
+    c.setDate(c.getDate() + 1);
+    const wd = c.getDay();
+    if (wd !== 0 && wd !== 6) d += 1;
+  }
+  return d;
+}
+
+export interface FollowUpCandidate {
+  account: Account;
+  /** 1 = erste Nachfassmail, 2 = zweite (und letzte). */
+  stage: 1 | 2;
+  /** Werktage seit dem letzten Kontakt. */
+  workdays: number;
+}
+
+export interface FollowUpSelection {
+  batch: FollowUpCandidate[];
+  /** Kontakte im Status "sent" — die einzige Grundmenge fürs Nachfassen. */
+  sent: number;
+  eligible: number;
+  tooEarly: number;
+  /** Bereits zweimal nachgefasst — die Sequenz endet dort. */
+  exhausted: number;
+  /** Aus dem Nachfassen genommen, weil reagiert/gesperrt (mit Grund). */
+  excluded: Record<string, number>;
+}
+
+/**
+ * Wer bekommt eine Nachfassmail?
+ *
+ * NUR Leads im Status "sent". Das ist keine Bequemlichkeit, sondern die
+ * eigentliche Sicherung: Sobald jemand antwortet, sich abmeldet oder bounct,
+ * verlässt der Lead diesen Status und fällt damit automatisch aus jeder
+ * weiteren Sequenz. Wer geantwortet hat, darf nie ein "haben Sie meine Mail
+ * gesehen?" bekommen — das verbrennt den warmen Kontakt. Wer sich abgemeldet
+ * hat, darf gar nichts mehr bekommen.
+ *
+ * Diese Sicherung trägt aber nur, solange der Posteingang tatsächlich
+ * ausgewertet wird — sonst bleibt jeder Antwortende auf "sent" stehen. Der
+ * Runner erzwingt deshalb einen frischen Scan, bevor er überhaupt auswählt.
+ */
+export function selectFollowUps(
+  accounts: Account[],
+  statusMap: Record<string, LeadRecord>,
+  opts: { limit: number; now: string; minWorkdays1?: number; minWorkdays2?: number },
+): FollowUpSelection {
+  const min1 = opts.minWorkdays1 ?? 4;
+  const min2 = opts.minWorkdays2 ?? 5;
+  const excluded: Record<string, number> = {};
+  let sent = 0, tooEarly = 0, exhausted = 0;
+  const cands: FollowUpCandidate[] = [];
+
+  for (const a of prioritize(accounts)) {
+    const r = statusMap[a.id];
+    if (!r) continue;
+    if (r.status !== "sent") {
+      // Alles andere ist entweder nie kontaktiert oder hat bereits reagiert.
+      if (["replied", "unsubscribed", "bounced", "demo-booked", "won", "lost"].includes(r.status)) {
+        excluded[r.status] = (excluded[r.status] ?? 0) + 1;
+      }
+      continue;
+    }
+    sent += 1;
+    const email = (a.email ?? "").trim();
+    if (!email) { excluded["ohne Adresse"] = (excluded["ohne Adresse"] ?? 0) + 1; continue; }
+    if (r.followup2_at) { exhausted += 1; continue; }
+
+    const last = r.followup1_at ?? r.sent_at;
+    if (!last) continue;
+    const wd = workdaysBetween(last, opts.now);
+    const stage: 1 | 2 = r.followup1_at ? 2 : 1;
+    if (wd < (stage === 1 ? min1 : min2)) { tooEarly += 1; continue; }
+    cands.push({ account: a, stage, workdays: wd });
+  }
+
+  // Älteste zuerst — wer am längsten wartet, wird zuerst nachgefasst.
+  cands.sort((x, y) => y.workdays - x.workdays);
+  return { batch: cands.slice(0, opts.limit), sent, eligible: cands.length, tooEarly, exhausted, excluded };
+}
+
+const INBOX_SCAN_KEY = "revenue-inbox-scan";
+
+/** Was der letzte Posteingangs-Scan verarbeitet hat. */
+export interface InboxScanRecord {
+  at: string;
+  bounces: number;
+  optOuts: number;
+  replies: number;
+}
+
+/** Lauf des Posteingangs-Scans festhalten (nur im Schreibmodus aufgerufen). */
+export function recordInboxScan(storage: Storage, rec: InboxScanRecord): void {
+  storage.save(INBOX_SCAN_KEY, rec);
+}
+
+export function lastInboxScan(storage: Storage): InboxScanRecord | null {
+  return storage.load<InboxScanRecord>(INBOX_SCAN_KEY) ?? null;
+}
+
+/**
+ * Darf nachgefasst werden?
+ *
+ * Nur wenn der Posteingang kürzlich ausgewertet wurde. Ohne das steht jeder,
+ * der geantwortet oder sich abgemeldet hat, immer noch auf "sent" — und bekäme
+ * eine Nachfassmail. Der Statusfilter in selectFollowUps() sieht dann nichts,
+ * weil die Statuswechsel nie geschrieben wurden.
+ */
+export function followUpGate(
+  storage: Storage,
+  now: string,
+  maxAgeHours = 72,
+): { ok: boolean; detail: string } {
+  const scan = lastInboxScan(storage);
+  if (!scan) {
+    return { ok: false, detail: "Posteingang wurde nie ausgewertet — Antworten und Abmeldungen sind unbekannt. Erst `npm run inbox:scan -- --write-suppression` ausführen." };
+  }
+  const ageH = (new Date(now).getTime() - new Date(scan.at).getTime()) / 3_600_000;
+  if (!Number.isFinite(ageH) || ageH > maxAgeHours) {
+    return { ok: false, detail: `letzter Posteingangs-Scan ist ${Math.round(ageH)} h alt (max. ${maxAgeHours} h) — zwischenzeitliche Antworten und Abmeldungen wären unsichtbar.` };
+  }
+  return { ok: true, detail: `Posteingang vor ${Math.round(ageH)} h ausgewertet · ${scan.bounces} Bounces · ${scan.optOuts} Abmeldungen · ${scan.replies} Antworten` };
 }
