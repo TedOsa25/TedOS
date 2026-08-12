@@ -71,3 +71,42 @@ export function isOptOutMessage(subject: string, rawSource: string): boolean {
   if (typed.length > 600) return false;
   return OPTOUT_PATTERN.test(typed);
 }
+
+/**
+ * Automatische Eingangsbestätigungen von Ticket- und CRM-Systemen.
+ *
+ * Diese sahen bisher aus wie echte Antworten und wurden als solche verbucht —
+ * sieben Leads (Doppstadt, Hansgrohe, BITO, Kneipp, Klosterfrau, Weishaupt,
+ * Aqseptence) galten dadurch als "hat geantwortet" und fielen aus der
+ * Nachfass-Sequenz, obwohl dort nie ein Mensch reagiert hat. Sie gehören zu
+ * den Auto-Replies: Abwesenheit von Reaktion, nicht Interesse.
+ *
+ * Bewusst eng gefasst: Nur Muster, die eindeutig maschinell sind. Ein blosses
+ * "Ihre Anfrage" ohne Vorgangsnummer wird NICHT gefiltert — das könnte eine
+ * echte Antwort sein, und ein falsch aussortierter Interessent ist teurer als
+ * eine überflüssige Nachfassmail.
+ */
+const ACK_PATTERNS: RegExp[] = [
+  /eingangsbest[äa]tigung/i,
+  /\[?\b(hg)?ticket[:\s#-]?\s*\d+/i,
+  /\bcas-\d{4,}/i,                       // thyssenkrupp: CAS-0041472
+  /\(cf-\d{4,}\)/i,                      // Bahlsen: (CF-424808)
+  /\(#\d{4,}\)/,                         // FENECON: (#236707)
+  /\bcrm:\s*\d{4,}/i,
+  /anfrage eingegangen/i,
+  /\byour\b.*\bcase\b/i,
+  /wir haben ihre (anfrage|nachricht|e-?mail) erhalten/i,
+  /automatisch (erzeugt|generiert)/i,
+  /this is an automated/i,
+  /ticket(nummer|-nr)/i,
+];
+
+/** True, wenn die Nachricht eine maschinelle Eingangsbestätigung ist. */
+export function isAutoAcknowledgement(subject: string, rawSource: string): boolean {
+  if (ACK_PATTERNS.some((re) => re.test(subject))) return true;
+  // Auch im Text prüfen, aber nur im selbst getippten Teil — ein zitierter
+  // Original-Betreff darf keine Bestätigung vortäuschen.
+  const typed = stripQuotedReply(rawSource);
+  if (typed.length > 900) return false;
+  return ACK_PATTERNS.some((re) => re.test(typed));
+}

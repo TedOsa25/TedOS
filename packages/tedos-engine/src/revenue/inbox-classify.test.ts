@@ -7,7 +7,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { stripQuotedReply, isOptOutMessage } from "./inbox-classify.js";
+import { stripQuotedReply, isOptOutMessage, isAutoAcknowledgement } from "./inbox-classify.js";
 
 const HEADERS = [
   "Return-Path: <kunde@example.de>",
@@ -102,5 +102,33 @@ describe("isOptOutMessage", () => {
       "Vielen Dank für Ihre Nachricht. ".repeat(30) +
       "Übrigens stand im Footer etwas von abmelden, das war aber nicht gemeint.";
     assert.equal(isOptOutMessage("Re: X", quotedReply(chatty)), false);
+  });
+});
+
+describe("isAutoAcknowledgement: Ticketsysteme sind keine Antworten", () => {
+  test("erkennt die real aufgetretenen Bestätigungen", () => {
+    const echte: [string, string][] = [
+      ["Eingangsbestätigung Ihrer E-Mail", "Doppstadt"],
+      ["[HGTicket: 9790765 ] Hansgrohe SE: CO2-Bilanz", "Hansgrohe"],
+      ["(CF-424808) Ihre Anfrage: Bahlsen: CO2-Bilanz", "Bahlsen"],
+      ["FENECON GmbH: CO2-Bilanz & PCF in Minuten (#236707)", "FENECON"],
+      ["[Anfrage eingegangen] BILSTEIN CAS-0041472 CRM:0212151", "thyssenkrupp"],
+      ["Your Dornbracht Case", "Dornbracht"],
+    ];
+    for (const [subject, wer] of echte) {
+      assert.equal(isAutoAcknowledgement(subject, HEADERS), true, `${wer} nicht erkannt`);
+    }
+  });
+
+  test("eine echte Antwort wird NICHT gefiltert", () => {
+    // Ein faelschlich aussortierter Interessent ist teurer als eine
+    // ueberfluessige Nachfassmail — im Zweifel durchlassen.
+    for (const s of ["AW: CO2-Bilanz & PCF in Minuten", "RE: Ihr Angebot", "Rückfrage zu HeyCarbo"]) {
+      assert.equal(isAutoAcknowledgement(s, quotedReply("Klingt interessant, rufen Sie an.")), false, s);
+    }
+  });
+
+  test("ein blosses 'Ihre Anfrage' ohne Vorgangsnummer bleibt eine Antwort", () => {
+    assert.equal(isAutoAcknowledgement("Ihre Anfrage", quotedReply("Wir haben Interesse.")), false);
   });
 });

@@ -21,7 +21,7 @@ import { ImapFlow } from "imapflow";
 import { createStorage } from "./../storage.js";
 import { loadAccounts } from "./accounts.js";
 import { markBounced, unsubscribeLead, recordInboxScan, markReplied, loadLeadStatus } from "./batch-send.js";
-import { isOptOutMessage } from "./inbox-classify.js";
+import { isOptOutMessage, isAutoAcknowledgement } from "./inbox-classify.js";
 
 /** Opt-in write mode: suppress hard-bounced addresses in the lead store. */
 const WRITE_SUPPRESSION = process.argv.includes("--write-suppression");
@@ -172,7 +172,10 @@ async function main(): Promise<void> {
           diagnostic = extractDiagnostic(source);
           // Body only — the headers are ~700 chars of DKIM/Received noise.
           if (DUMP_BOUNCES) excerpt = source.split(/\r?\n\r?\n/).slice(1).join(" ").replace(/\s+/g, " ").slice(0, 1200);
-        } else if (AUTOREPLY_SUBJECT.test(subject) || autoSubmitted) {
+        } else if (AUTOREPLY_SUBJECT.test(subject) || autoSubmitted || isAutoAcknowledgement(subject, source)) {
+          // Ticket-Eingangsbestätigungen zählen als Auto-Reply, nicht als
+          // Antwort — sonst gilt ein Lead als reagierend, bei dem nie ein
+          // Mensch gelesen hat.
           kind = "auto-reply";
         } else if (isOptOutMessage(subject, source)) {
           kind = "opt-out";

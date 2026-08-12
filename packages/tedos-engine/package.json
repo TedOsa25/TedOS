@@ -69,6 +69,7 @@
     "transport:diag": "tsx src/revenue/transport-diag.ts",
     "inbox:scan": "tsx src/revenue/inbox-scan.ts",
     "followup:send": "tsx src/revenue/followup-run.ts",
+    "mx:sweep": "tsx src/revenue/mx-sweep.ts",
     "test:followup": "tsx src/revenue/followup.test.ts",
     "unsubscribe:sync": "tsx src/revenue/unsubscribe-sync.ts",
     "test:list-unsubscribe": "tsx src/revenue/list-unsubscribe.test.ts",
