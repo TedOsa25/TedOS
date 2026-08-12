@@ -769,3 +769,20 @@ export function followUpGate(
   }
   return { ok: true, detail: `Posteingang vor ${Math.round(ageH)} h ausgewertet · ${scan.bounces} Bounces · ${scan.optOuts} Abmeldungen · ${scan.replies} Antworten` };
 }
+
+/**
+ * Einen Lead als "replied" markieren — er verlässt damit die Nachfass-Sequenz.
+ *
+ * Endzustände (unsubscribed/bounced/demo-booked/won/lost) werden NIE
+ * überschrieben: eine Abmeldung wiegt schwerer als eine Antwort, und ein
+ * gebuchter Termin ist bereits weiter als "hat geantwortet".
+ */
+export function markReplied(storage: Storage, id: string): boolean {
+  const map = loadLeadStatus(storage);
+  const cur = map[id]?.status;
+  if (!cur || cur === "replied") return false;
+  if (["unsubscribed", "bounced", "demo-booked", "won", "lost"].includes(cur)) return false;
+  map[id] = { ...(map[id] as LeadRecord), status: "replied" };
+  saveLeadStatus(storage, map);
+  return true;
+}

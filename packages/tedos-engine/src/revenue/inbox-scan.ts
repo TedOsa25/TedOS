@@ -20,7 +20,7 @@ import { ImapFlow } from "imapflow";
 
 import { createStorage } from "./../storage.js";
 import { loadAccounts } from "./accounts.js";
-import { markBounced, unsubscribeLead, recordInboxScan } from "./batch-send.js";
+import { markBounced, unsubscribeLead, recordInboxScan, markReplied, loadLeadStatus } from "./batch-send.js";
 import { isOptOutMessage } from "./inbox-classify.js";
 
 /** Opt-in write mode: suppress hard-bounced addresses in the lead store. */
@@ -311,6 +311,38 @@ async function main(): Promise<void> {
     }
   }
   console.log(`\n✅ ${optOutWritten} Lead(s) auf "unsubscribed" gesetzt — dauerhaft gesperrt.`);
+
+  // === Antworten verbuchen ===================================================
+  // Ohne diesen Schritt bleibt jeder Antwortende auf "sent" stehen — und der
+  // Nachfass-Lauf, den das Gate unten freigibt, würde ihm ein "haben Sie meine
+  // Mail gesehen?" schicken. Auto-Replies zählen NICHT: die sind als eigene
+  // Kategorie klassifiziert und bedeuten Abwesenheit, keine Reaktion.
+  const replySenders = new Set(by.reply.map((r) => r.from).filter(Boolean));
+  const replyMatched: { id: string; company: string; email: string }[] = [];
+  for (const a of accounts) {
+    const email = (a.email ?? "").trim().toLowerCase();
+    if (email && replySenders.has(email)) replyMatched.push({ id: a.id, email, company: a.company ?? a.id });
+  }
+  const replyUnmatched = [...replySenders].filter((e) => !replyMatched.some((m) => m.email === e));
+
+  console.log(`\n── Antworten ──`);
+  console.log(`Antwortende Absender    : ${replySenders.size}`);
+  console.log(`Im CRM zugeordnet       : ${replyMatched.length} Lead(s)`);
+  if (replyUnmatched.length) {
+    console.log(`  ohne CRM-Treffer      : ${replyUnmatched.length} (Antworten von anderen Adressen als der angeschriebenen)`);
+  }
+  let replyWritten = 0;
+  for (const m of replyMatched) {
+    const st = loadLeadStatus(storage)[m.id]?.status;
+    // Endzustände nie überschreiben: eine Abmeldung oder ein gebuchter Termin
+    // wiegt schwerer als "hat geantwortet".
+    if (st && ["unsubscribed", "bounced", "demo-booked", "won", "lost"].includes(st)) continue;
+    if (markReplied(storage, m.id)) {
+      replyWritten += 1;
+      console.log(`  ✉ ${m.id.padEnd(9)} ${m.email.padEnd(38)} ${m.company.slice(0, 40)}`);
+    }
+  }
+  console.log(`\n✅ ${replyWritten} Lead(s) auf "replied" gesetzt — aus der Nachfass-Sequenz genommen.`);
 
   // Lauf festhalten: der Follow-up-Versand verweigert den Dienst, solange kein
   // frischer Scan vorliegt — sonst stünden Antwortende noch auf "sent".
