@@ -30,7 +30,7 @@ import {
   loadLeadStatus, selectFollowUps, followUpGate, listUnsubscribeHeaders,
   type LeadRecord,
 } from "./batch-send.js";
-import { runPreflight, formatPreflight } from "./preflight.js";
+import { runPreflight, formatPreflight, recipientMxCheck, dnsMxResolver } from "./preflight.js";
 import { writeReportFile } from "./report-file.js";
 
 const APPLY = process.argv.includes("--apply");
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
   });
   // "approved" bezieht sich auf den Erstkontakt und ist beim Nachfassen
   // naturgemäß leer — diese eine Prüfung zählt hier nicht.
-  const blocking = pf.checks.filter((c) => c.blocking && !c.ok && c.id !== "approved-only" && c.id !== "batch-limit");
+  const blocking = pf.checks.filter((c) => c.blocking && !c.ok && c.id !== "approved-only" && c.id !== "batch-limit" && c.id !== "dns-recipients");
   console.log("\n" + formatPreflight(pf));
   if (blocking.length) {
     console.log(`\n⛔ Abbruch: ${blocking.map((c) => c.label).join(", ")}`);
@@ -97,11 +97,21 @@ async function main(): Promise<void> {
     return;
   }
 
-  const dead = new Set(pf.deadMx.map((e) => e.toLowerCase()));
+  // MX EIGENSTÄNDIG prüfen. runPreflight() löst die Adressen der APPROVED-Menge
+  // auf — die ist beim Nachfassen leer, der Check meldete deshalb "0 Domains
+  // geprüft" und schützte nichts. Die Nachfass-Empfänger sind eine völlig
+  // andere Menge und brauchen ihre eigene Auflösung.
+  const mx = await recipientMxCheck(
+    sel.batch.map((c) => c.account.email as string),
+    dnsMxResolver,
+  );
+  console.log(`  ${mx.ok ? "✅" : "⛔"} ${mx.label} — ${mx.detail}`);
+  const dead = new Set(mx.deadEmails.map((e) => e.toLowerCase()));
   const batch = sel.batch.filter((c) => !dead.has(String(c.account.email).toLowerCase()));
   if (batch.length !== sel.batch.length) {
     console.log(`\n⚠ ${sel.batch.length - batch.length} Empfänger ohne MX aus dem Nachfassen entfernt.`);
   }
+  if (!batch.length) { console.log("\nNach der MX-Prüfung bleibt niemand übrig."); return; }
 
   if (!APPLY) {
     console.log("\n(Vorschau — nichts versendet. Mit --apply und REVENUE_SEND_ENABLED=1 senden.)\n");
