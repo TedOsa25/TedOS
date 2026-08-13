@@ -32,6 +32,7 @@ import {
 } from "./batch-send.js";
 import { runPreflight, formatPreflight, recipientMxCheck, dnsMxResolver } from "./preflight.js";
 import { writeReportFile } from "./report-file.js";
+import { berlinDatum } from "./zeit.js";
 
 const APPLY = process.argv.includes("--apply");
 const LIMIT = Number(process.env.REVENUE_FOLLOWUP_SIZE ?? 20);
@@ -74,7 +75,7 @@ async function main(): Promise<void> {
   if (!sel.batch.length) { console.log("\nNichts zu tun."); return; }
 
   for (const c of sel.batch) {
-    console.log(`   ${c.stage === 1 ? "FU1" : "FU2"} · ${String(c.account.company).slice(0, 38).padEnd(40)} ${c.workdays} WT · ${c.account.email}`);
+    console.log(`   ${c.stage === 1 ? "FU1" : "FU2"} · ${String(c.account.company).slice(0, 38).padEnd(40)} ${String(c.workdays).padStart(3)} WT seit ${berlinDatum(statusMap[c.account.id]?.followup1_at ?? statusMap[c.account.id]?.sent_at)} · ${c.account.email}`);
   }
 
   // === 2) Preflight — identisch zum Erstkontakt ==============================

@@ -26,6 +26,7 @@ import { activeBrandProfile } from "./brand-profile.js";
 import { unsubscribeToken, unsubscribeUrl } from "./email-template.js";
 import { type Variant, DEFAULT_VARIANT } from "./email-copy.js";
 import { assignExperiment, experimentConfig, describeExperiment } from "./experiment.js";
+import { berlinZeit } from "./zeit.js";
 import {
   dispatch, getProvider, isSendArmed, selectedProviderName,
   type EmailProvider, type OutboundEmail, type ProviderName, type SendStatus,
@@ -780,7 +781,7 @@ export function followUpGate(
   if (!Number.isFinite(ageH) || ageH > maxAgeHours) {
     return { ok: false, detail: `letzter Posteingangs-Scan ist ${Math.round(ageH)} h alt (max. ${maxAgeHours} h) — zwischenzeitliche Antworten und Abmeldungen wären unsichtbar.` };
   }
-  return { ok: true, detail: `Posteingang vor ${Math.round(ageH)} h ausgewertet · ${scan.bounces} Bounces · ${scan.optOuts} Abmeldungen · ${scan.replies} Antworten` };
+  return { ok: true, detail: `Posteingang ausgewertet am ${berlinZeit(scan.at)} (vor ${Math.round(ageH)} h) · ${scan.bounces} Bounces · ${scan.optOuts} Abmeldungen · ${scan.replies} Antworten` };
 }
 
 /**
