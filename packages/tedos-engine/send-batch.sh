@@ -60,7 +60,17 @@ export SMTP_USER=ted@heycarbo.com
 export SMTP_PASS
 export SUPABASE_SERVICE_ROLE_KEY
 export REVENUE_BATCH_SIZE="${REVENUE_BATCH_SIZE:-20}"
+# A/B: Tonalitaet auf E festgenagelt, nur der Betreff variiert (3 Arme statt 15).
+#
+# Der volle Test ueber 5 Tonalitaeten x 3 Betreffe braucht bei der aktuellen
+# Antwortquote rund 23.000 Mails fuer 5 Antworten je Arm — so viele Adressen
+# gibt der Bestand nicht her. Mit drei Armen reichen ~4.500. Der Betreff
+# entscheidet ohnehin zuerst darueber, ob ueberhaupt geoeffnet wird.
+#
+# Ueberschreibbar: REVENUE_TEST_VARIANTS=A,B,C,D,E ./send-batch.sh …
+export REVENUE_TEST_VARIANTS="${REVENUE_TEST_VARIANTS:-E}"
 export REVENUE_CAMPAIGN="$CAMPAIGN"
 
+echo "A/B: Tonalität $REVENUE_TEST_VARIANTS · Betreff variiert über alle drei"
 echo "Kampagne: $CAMPAIGN · Batchgröße: $REVENUE_BATCH_SIZE · Master-Switch: $([[ $ARMED == 1 ]] && echo ARMED || echo 'OFF (Dry-Run)')"
 exec npm run batch:send
