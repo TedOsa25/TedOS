@@ -33,6 +33,17 @@ const PORT = Number(process.env.IMAP_PORT ?? 993);
 const USER = process.env.IMAP_USER ?? process.env.SMTP_USER ?? "";
 const PASS = process.env.IMAP_PASS ?? process.env.SMTP_PASS ?? "";
 const SINCE = process.env.INBOX_SINCE ?? "2026-07-20";
+/**
+ * Zu durchsuchende Ordner.
+ *
+ * NICHT nur INBOX: Wird das Postfach aufgeräumt, wandern Bounces und
+ * Abmeldungen in den Papierkorb — und der Scan meldet danach eine
+ * Traum-Bounce-Rate, weil er die Belege nicht mehr sieht. Am 15.08. lagen
+ * 2.202 Nachrichten im Papierkorb und nur 116 im Posteingang; die Messung
+ * hätte 0,24 % statt der tatsächlichen Quote ausgewiesen. Alles wird
+ * ausschliesslich LESEND geöffnet.
+ */
+const ORDNER = (process.env.INBOX_FOLDERS ?? "INBOX,Papierkorb,Archiv,Archiv/2026,Spam").split(",").map((f) => f.trim()).filter(Boolean);
 /** How many campaign mails were sent in the window (for the bounce-rate denominator). */
 const SENT_IN_WINDOW = Number(process.env.INBOX_SENT_COUNT ?? 0);
 
@@ -138,12 +149,19 @@ async function main(): Promise<void> {
   await client.connect();
   console.log(`✅ IMAP verbunden: ${USER}@${HOST}:${PORT}`);
 
+  const sinceDate = new Date(SINCE + "T00:00:00Z");
+  const gesehen = new Set<string>();
+  let gesamt = 0;
+
+  for (const ordner of ORDNER) {
   // READ-ONLY lock — nothing in the mailbox is ever modified.
-  const lock = await client.getMailboxLock("INBOX", { readonly: true });
+  let lock;
+  try { lock = await client.getMailboxLock(ordner, { readonly: true }); }
+  catch { console.log(`  (Ordner "${ordner}" nicht vorhanden — übersprungen)`); continue; }
   try {
-    const sinceDate = new Date(SINCE + "T00:00:00Z");
     const uids = await client.search({ since: sinceDate }, { uid: true });
-    console.log(`📥 ${uids.length} Nachrichten seit ${SINCE} im Posteingang\n`);
+    console.log(`📥 ${(uids as number[]).length} Nachrichten seit ${SINCE} in "${ordner}"`);
+    gesamt += (uids as number[]).length;
 
     if (uids.length) {
       for await (const msg of client.fetch(
@@ -184,6 +202,12 @@ async function main(): Promise<void> {
           kind = "reply";
         }
 
+        // Dieselbe Nachricht kann in mehreren Ordnern liegen (verschoben,
+        // kopiert). Ohne Entdopplung zaehlt ein Bounce doppelt.
+        const schluessel = `${from}|${subject}|${date}`;
+        if (gesehen.has(schluessel)) continue;
+        gesehen.add(schluessel);
+
         results.push({
           kind, from, subject, date,
           ...(failedRecipient ? { failedRecipient } : {}),
@@ -196,8 +220,10 @@ async function main(): Promise<void> {
     }
   } finally {
     lock.release();
-    await client.logout();
   }
+  }
+  console.log(`\n📥 ${gesamt} Nachrichten insgesamt über ${ORDNER.length} Ordner\n`);
+  await client.logout();
 
   // === Aggregate ============================================================
   const by: Record<Kind, Classified[]> = { bounce: [], "auto-reply": [], "opt-out": [], reply: [], other: [] };
