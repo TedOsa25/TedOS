@@ -69,8 +69,13 @@ export REVENUE_BATCH_SIZE="${REVENUE_BATCH_SIZE:-20}"
 #
 # Ueberschreibbar: REVENUE_TEST_VARIANTS=A,B,C,D,E ./send-batch.sh …
 export REVENUE_TEST_VARIANTS="${REVENUE_TEST_VARIANTS:-E}"
+# Keine BCC-Kopie mehr an ted@heycarbo.com. Sie war als Sichtkontrolle beim
+# Neustart gedacht; inzwischen liefern Batch-Report, inbox:scan und ab:report
+# dieselbe Information, ohne das Postfach mit jeder ausgehenden Mail zu fluten.
+# Wieder einschalten: REVENUE_BCC=ted@heycarbo.com ./send-batch.sh …
+export REVENUE_BCC="${REVENUE_BCC:-off}"
 export REVENUE_CAMPAIGN="$CAMPAIGN"
 
-echo "A/B: Tonalität $REVENUE_TEST_VARIANTS · Betreff variiert über alle drei"
+echo "A/B: Tonalität $REVENUE_TEST_VARIANTS · Betreff variiert über alle drei · BCC: $REVENUE_BCC"
 echo "Kampagne: $CAMPAIGN · Batchgröße: $REVENUE_BATCH_SIZE · Master-Switch: $([[ $ARMED == 1 ]] && echo ARMED || echo 'OFF (Dry-Run)')"
 exec npm run batch:send
