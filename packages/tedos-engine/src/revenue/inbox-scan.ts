@@ -120,7 +120,7 @@ function extractDiagnostic(source: string): string | undefined {
   //
   // Fallback for real remote DSNs that quote the SMTP status inline.
   const smtpLine = source.match(/^\s*(?:>>> )?([45]\d{2}[- ][^\r\n]{5,160})/im);
-  return smtpLine?.[1].replace(/\s+/g, " ").trim();
+  return smtpLine?.[1]?.replace(/\s+/g, " ").trim();
 }
 
 /** Permanent (5.x.x) vs temporary (4.x.x) failure — only hard bounces suppress. */
@@ -143,7 +143,18 @@ async function main(): Promise<void> {
     host: HOST, port: PORT, secure: true,
     auth: { user: USER, pass: PASS },
     logger: false,
+    // IONOS liefert grosse Ordner spuerbar langsam aus; die Vorgabe von
+    // imapflow reicht dafuer nicht.
+    socketTimeout: 180_000,
+    greetingTimeout: 30_000,
   });
+
+  // ImapFlow ist ein EventEmitter: ohne diesen Handler beendet ein Socket-Fehler
+  // den gesamten Prozess ueber ein unbehandeltes 'error'-Event — mitten im Lauf,
+  // und alles bereits Gelesene ist verloren. Der Fehler wird stattdessen
+  // vermerkt; die Ordnerschleife unten faengt ihn ab und wertet aus, was da ist.
+  let socketFehler: string | null = null;
+  client.on("error", (e: Error) => { socketFehler = e.message; });
 
   const results: Classified[] = [];
   await client.connect();
@@ -155,17 +166,29 @@ async function main(): Promise<void> {
 
   for (const ordner of ORDNER) {
   // READ-ONLY lock — nothing in the mailbox is ever modified.
+  //
+  // Die Option heisst readOnly, nicht readonly. Kleingeschrieben wurde sie
+  // stillschweigend ignoriert und der Ordner SCHREIBEND geoeffnet — der Scan
+  // haette ungelesene Bounces als gelesen markieren koennen, waehrend der
+  // Kommentar darueber das Gegenteil behauptete.
   let lock;
-  try { lock = await client.getMailboxLock(ordner, { readonly: true }); }
+  try { lock = await client.getMailboxLock(ordner, { readOnly: true }); }
   catch { console.log(`  (Ordner "${ordner}" nicht vorhanden — übersprungen)`); continue; }
   try {
     const uids = await client.search({ since: sinceDate }, { uid: true });
     console.log(`📥 ${(uids as number[]).length} Nachrichten seit ${SINCE} in "${ordner}"`);
     gesamt += (uids as number[]).length;
 
-    if (uids.length) {
+    // In Bloecken holen statt alle auf einmal. `source: true` laedt jede
+    // Nachricht vollstaendig; ueber 591 Nachrichten in einem Fetch lief IONOS in
+    // einen Socket-Timeout und der Lauf brach ab. Bricht jetzt ein Block ab,
+    // fehlt dieser Block — nicht der ganze Ordner.
+    const BLOCK = 100;
+    for (let i = 0; i < (uids as number[]).length; i += BLOCK) {
+    const block = (uids as number[]).slice(i, i + BLOCK);
+    try {
       for await (const msg of client.fetch(
-        { uid: uids.join(",") },
+        { uid: block.join(",") },
         { uid: true, envelope: true, source: true },
       )) {
         const from = msg.envelope?.from?.[0]?.address?.toLowerCase() ?? "";
@@ -217,13 +240,20 @@ async function main(): Promise<void> {
           ...(excerpt ? { excerpt } : {}),
         });
       }
+    } catch (e) {
+      // Laut melden, nicht still schlucken: eine unvollstaendige Messung, die
+      // wie eine vollstaendige aussieht, ist schlimmer als ein sichtbares Loch.
+      console.log(`  ⚠ Block ${i + 1}–${i + block.length} in "${ordner}" abgebrochen (${(e as Error).message}) — ${block.length} Nachrichten ungelesen`);
+    }
     }
   } finally {
-    lock.release();
+    try { lock.release(); } catch { /* Verbindung schon weg */ }
   }
   }
-  console.log(`\n📥 ${gesamt} Nachrichten insgesamt über ${ORDNER.length} Ordner\n`);
-  await client.logout();
+  console.log(`\n📥 ${gesamt} Nachrichten insgesamt über ${ORDNER.length} Ordner`);
+  if (socketFehler) console.log(`⚠ Verbindungsfehler während des Laufs: ${socketFehler} — die Zahlen können unvollständig sein`);
+  console.log("");
+  try { await client.logout(); } catch { /* Verbindung schon weg — die Daten sind gelesen */ }
 
   // === Aggregate ============================================================
   const by: Record<Kind, Classified[]> = { bounce: [], "auto-reply": [], "opt-out": [], reply: [], other: [] };
@@ -271,8 +301,15 @@ async function main(): Promise<void> {
         b.diagnostic ?? "", b.subject, b.excerpt ?? "",
       ].map((v) => String(v).replaceAll(";", ",")).join(";")),
     );
-    writeFileSync(process.argv[dumpIdx + 1], csv.join("\n"), "utf8");
-    console.log(`\n📄 Bounce-Dump: ${process.argv[dumpIdx + 1]} (${by.bounce.length} Zeilen)`);
+    // Ohne Pfad hinter --dump-bounces liefe writeFileSync in einen Absturz,
+    // nachdem der Scan schon durch ist — der teure Teil waere umsonst gewesen.
+    const dumpPfad = process.argv[dumpIdx + 1];
+    if (dumpPfad && !dumpPfad.startsWith("--")) {
+      writeFileSync(dumpPfad, csv.join("\n"), "utf8");
+      console.log(`\n📄 Bounce-Dump: ${dumpPfad} (${by.bounce.length} Zeilen)`);
+    } else {
+      console.log("\n⚠ --dump-bounces ohne Zieldatei — kein Dump geschrieben.");
+    }
   }
 
   // === Optional: suppress hard-bounced addresses in the lead store ==========

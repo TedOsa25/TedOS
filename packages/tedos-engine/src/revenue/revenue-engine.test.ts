@@ -320,4 +320,26 @@ describe("Konsumgüter: Handel statt Industriekunden", () => {
     const o = buildOpportunity(lead("Maschinenbau"), () => "2026-08-09T09:00:00.000Z", "E");
     assert.match(o.emailHtml, /Industriekunden beliefert/);
   });
+
+  // Derselbe Fehler ist zweimal aufgetreten: erst im Default-Zweig (Waldemar
+  // Link, Kaldewei), dann über den chemie-Zweig, in dem "pharma" mitlief.
+  // Verla-Pharm, Hevert und Mucos beliefern Apotheken, Großhandel und Kliniken
+  // — 9 von 18 Empfängern eines Batches hätten die Behauptung im ersten Satz
+  // gelesen. Deshalb ein Test und nicht nur eine Korrektur.
+  test("Pharma behauptet keine Industriekunden", () => {
+    for (const b of ["Pharma", "Arzneimittel", "Biotech"]) {
+      const o = buildOpportunity(lead(b), () => "2026-08-09T09:00:00.000Z", "E");
+      const einstieg = o.emailText.split("\n").filter(Boolean)[1] ?? "";
+      assert.doesNotMatch(einstieg, /Industriekunden/, `${b}: behauptet Industriekunden`);
+      assert.match(einstieg, new RegExp(`im Bereich ${b} produziert`), `${b}: nennt die Branche nicht`);
+    }
+  });
+
+  test("Medizintechnik nennt die Branche statt der Kunden", () => {
+    // Königsee (Implantate), Geuder (Augenchirurgie) liefern an Kliniken.
+    const o = buildOpportunity(lead("Medizintechnik"), () => "2026-08-09T09:00:00.000Z", "E");
+    const einstieg = o.emailText.split("\n").filter(Boolean)[1] ?? "";
+    assert.doesNotMatch(einstieg, /Industriekunden/);
+    assert.match(einstieg, /im Bereich Medizintechnik fertigt/);
+  });
 });

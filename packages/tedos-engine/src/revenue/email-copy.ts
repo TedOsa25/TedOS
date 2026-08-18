@@ -96,12 +96,18 @@ const signal = (v?: unknown): boolean => {
 };
 
 /** Coarse industry bucket derived from the account's real industry string. */
-type Bucket = "automotive" | "maschinenbau" | "chemie" | "logistik" | "elektronik" | "konsumgueter" | "generic";
+type Bucket = "automotive" | "maschinenbau" | "chemie" | "pharma" | "logistik" | "elektronik" | "konsumgueter" | "generic";
 function classifyIndustry(industry: string): Bucket {
   const s = String(industry ?? "").toLowerCase();
   if (/automotive|mobility|fahrzeug|automobil|\bkfz\b/.test(s)) return "automotive";
   if (/maschinen|anlagen|machinery|mechanical|engineering/.test(s)) return "maschinenbau";
-  if (/chemie|chemical|kunststoff|plastic|polymer|pharma/.test(s)) return "chemie";
+  // VOR chemie prüfen: "pharma" stand früher in der chemie-Zeile, und damit
+  // bekamen Arzneimittelhersteller den Satz "…die internationale Industriekunden
+  // beliefert". Verla-Pharm, Hevert und Mucos beliefern Apotheken, Großhandel
+  // und Kliniken. Es ist derselbe Fehler, der im Default-Zweig schon einmal
+  // repariert wurde — er lief nur an der Reparatur vorbei.
+  if (/pharma|arzneimittel|medikament|biotech|wirkstoff/.test(s)) return "pharma";
+  if (/chemie|chemical|kunststoff|plastic|polymer/.test(s)) return "chemie";
   if (/logistik|logistics|transport|spedition|fracht|freight/.test(s)) return "logistik";
   if (/elektro|electronic|elektronik|semiconductor|halbleiter/.test(s)) return "elektronik";
   // Konsumgüter verkaufen an Handel und Endkunden, nicht an Industriekunden.
@@ -120,6 +126,7 @@ function painPhrase(a: Account, bucket: Bucket): string {
   switch (bucket) {
     case "maschinenbau": return "belastbare Scope-3- und Product-Carbon-Footprint-Daten";
     case "chemie": return "transparente CO₂-Daten entlang der gesamten Lieferkette";
+    case "pharma": return "belastbare CO₂-Daten je Produkt und entlang der Lieferkette";
     case "logistik": return "belastbare Scope-1-, Scope-2- und Scope-3-Daten";
     case "elektronik": return "standardisierte Product Carbon Footprints";
     case "konsumgueter": return "produktbezogene CO₂-Daten und Umweltproduktdeklarationen";
@@ -146,6 +153,13 @@ function whoByBucket(bucket: Bucket, industry: string): string {
   switch (bucket) {
     case "maschinenbau": return "zahlreiche Industriekunden beliefert";
     case "chemie": return "internationale Industriekunden beliefert";
+    // Wie im Default: nur die belegte Branche nennen, nichts über die Kunden
+    // behaupten. Wer Arzneimittel herstellt, beliefert Apotheken, Großhandel
+    // und Kliniken — nicht "Industriekunden".
+    case "pharma": {
+      const b = String(industry ?? "").trim();
+      return b ? `im Bereich ${b} produziert` : "Arzneimittel herstellt";
+    }
     case "logistik": return "für Unternehmen mit steigenden Nachhaltigkeitsanforderungen tätig ist";
     case "elektronik":
     case "automotive": return "für internationale Industrieunternehmen produziert";
@@ -167,6 +181,7 @@ function sentence2(kind: "oems" | Bucket, pain: string): string {
     case "automotive": return `Genau diese Kunden verlangen inzwischen ${pain}.`;
     case "maschinenbau": return `Genau diese Unternehmen fordern zunehmend ${pain}.`;
     case "chemie": return `Genau diese Unternehmen erwarten heute ${pain}.`;
+    case "pharma": return `Einkauf und Ausschreibungen verlangen dort zunehmend ${pain}.`;
     case "logistik": return `Immer mehr Auftraggeber erwarten inzwischen ${pain}.`;
     case "elektronik": return `Genau diese Kunden verlangen zunehmend ${pain}.`;
     case "konsumgueter": return `Handelskunden und Ausschreibungen fordern dort zunehmend ${pain}.`;
@@ -195,7 +210,7 @@ export function researchIntro(a: Account): string {
   let who: string;
   if (oems) who = `unter anderem für ${oems} produziert`;
   else if (custs.length) {
-    who = bucket === "maschinenbau" || bucket === "chemie"
+    who = bucket === "maschinenbau" || bucket === "chemie" || bucket === "pharma"
       ? `unter anderem ${custs.join(" und ")} beliefert`
       : `unter anderem für ${custs.join(" und ")} produziert`;
   } else who = whoByBucket(bucket, a.industry);

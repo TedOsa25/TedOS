@@ -108,7 +108,12 @@ async function main(): Promise<void> {
   } catch (e) {
     console.log(`⚠ Report-Datei konnte nicht geschrieben werden: ${(e as Error).message}`);
   }
-  console.log(report.sent > 0 ? `\n✅ ${report.sent} gesendet. BCC ging blind an ${report.bccAddress}.` : "\nℹ Nichts gesendet (Master-Switch aus oder Provider nicht konfiguriert).");
+  // Die Schlusszeile behauptete auch dann eine BCC-Kopie, wenn gar keine
+  // konfiguriert ist — "BCC ging blind an undefined" liest sich, als sei eine
+  // Kopie irgendwohin gegangen. Seit REVENUE_BCC=off der Normalfall ist, ist
+  // das die Zeile, die am haeufigsten gelesen wird.
+  const bccHinweis = report.bccAddress ? ` BCC ging blind an ${report.bccAddress}.` : " Keine BCC-Kopie.";
+  console.log(report.sent > 0 ? `\n✅ ${report.sent} gesendet.${bccHinweis}` : "\nℹ Nichts gesendet (Master-Switch aus oder Provider nicht konfiguriert).");
 }
 
 main().catch((e) => { console.error("batch-send-run failed:", (e as Error).message); process.exitCode = 1; });
