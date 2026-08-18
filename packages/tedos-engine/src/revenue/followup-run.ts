@@ -38,6 +38,8 @@ const APPLY = process.argv.includes("--apply");
 const LIMIT = Number(process.env.REVENUE_FOLLOWUP_SIZE ?? 20);
 const MIN1 = Number(process.env.REVENUE_FOLLOWUP_MIN1 ?? 4);
 const MIN2 = Number(process.env.REVENUE_FOLLOWUP_MIN2 ?? 5);
+/** Obergrenze in Werktagen — darüber ist ein "Re:" keine Fortsetzung mehr. */
+const MAX = Number(process.env.REVENUE_FOLLOWUP_MAX ?? 15);
 const SENDER = {
   email: process.env.REVENUE_FROM_EMAIL ?? activeBrandProfile().identity.senderEmail,
   name: process.env.REVENUE_FROM_NAME ?? activeBrandProfile().identity.senderName,
@@ -63,12 +65,13 @@ async function main(): Promise<void> {
 
   const accounts = loadAccounts();
   const statusMap = loadLeadStatus(storage);
-  const sel = selectFollowUps(accounts, statusMap, { limit: LIMIT, now, minWorkdays1: MIN1, minWorkdays2: MIN2 });
+  const sel = selectFollowUps(accounts, statusMap, { limit: LIMIT, now, minWorkdays1: MIN1, minWorkdays2: MIN2, maxWorkdays: MAX });
 
   console.log(`\n── Auswahl ──`);
   console.log(`  Kontaktiert (Status "sent") : ${sel.sent}`);
   console.log(`  Fällig                      : ${sel.eligible}`);
   console.log(`  Noch zu früh                : ${sel.tooEarly}`);
+  console.log(`  Zu lange her (> ${String(MAX).padStart(2)} WT)      : ${sel.tooLate}`);
   console.log(`  Sequenz beendet (2 gesendet): ${sel.exhausted}`);
   for (const [k, v] of Object.entries(sel.excluded)) console.log(`  Ausgeschlossen (${k}): ${v}`);
   console.log(`  → in diesem Lauf            : ${sel.batch.length}`);
@@ -91,7 +94,12 @@ async function main(): Promise<void> {
   // "approved" bezieht sich auf den Erstkontakt und ist beim Nachfassen
   // naturgemäß leer — diese eine Prüfung zählt hier nicht.
   const blocking = pf.checks.filter((c) => c.blocking && !c.ok && c.id !== "approved-only" && c.id !== "batch-limit" && c.id !== "dns-recipients");
+  // formatPreflight endet mit einem eigenen Gesamturteil. Beim Nachfassen ist
+  // das irreführend: "approved" gehört zum Erstkontakt und ist hier immer leer,
+  // also meldet der Block "⛔ PREFLIGHT FEHLGESCHLAGEN — kein Versand", während
+  // der Lauf gleich sendet. Die Zeile steht genau dort, wo entschieden wird.
   console.log("\n" + formatPreflight(pf));
+  console.log(`  Hinweis              : "approved"/Versandlimit gelten dem Erstkontakt und zählen hier nicht — maßgeblich sind ${blocking.length === 0 ? "keine" : blocking.length} blockierende Prüfungen.`);
   if (blocking.length) {
     console.log(`\n⛔ Abbruch: ${blocking.map((c) => c.label).join(", ")}`);
     process.exitCode = 1;

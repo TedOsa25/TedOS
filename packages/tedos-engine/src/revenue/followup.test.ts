@@ -82,13 +82,35 @@ describe("selectFollowUps: wer KEINE Nachfassmail bekommt", () => {
     assert.equal(sel.batch[0]?.stage, 2);
   });
 
-  test("wer am längsten wartet, kommt zuerst", () => {
+  test("wer am längsten wartet, kommt zuerst — innerhalb des Fensters", () => {
     const s = store({
-      a: { status: "sent", sent_at: "2026-08-05T09:00:00Z" },
-      b: { status: "sent", sent_at: "2026-07-20T09:00:00Z" },
+      a: { status: "sent", sent_at: "2026-08-05T09:00:00Z" },   // 4 WT
+      b: { status: "sent", sent_at: "2026-08-03T09:00:00Z" },   // 6 WT
     });
     const sel = selectFollowUps(accounts, s.load("revenue-lead-status")!, { limit: 20, now: NOW });
     assert.equal(sel.batch[0]?.account.id, "b");
+  });
+
+  // Die Nachfassmail geht als "Re: <Originalbetreff>" raus. Ohne Obergrenze
+  // zog die Sortierung "älteste zuerst" genau die Kontakte nach vorn, bei denen
+  // dieser Betreff eine Vorkorrespondenz behauptet, an die sich niemand mehr
+  // erinnert: am 18.08. standen 20 Kandidaten mit 31 Werktagen in der Auswahl.
+  test("nach dem Fenster wird nicht mehr nachgefasst — ein 'Re:' wäre dort gelogen", () => {
+    const s = store({
+      alt: { status: "sent", sent_at: "2026-06-01T09:00:00Z" },  // ~50 WT
+      neu: { status: "sent", sent_at: "2026-08-03T09:00:00Z" },  // 6 WT
+    });
+    const sel = selectFollowUps([acct("alt", 0), acct("neu", 1)], s.load("revenue-lead-status")!, { limit: 20, now: NOW });
+    assert.deepEqual(sel.batch.map((x) => x.account.id), ["neu"]);
+    assert.equal(sel.tooLate, 1);
+  });
+
+  test("die Obergrenze ist einstellbar", () => {
+    const s = store({ a: { status: "sent", sent_at: "2026-07-20T09:00:00Z" } }); // 16 WT
+    const eng = selectFollowUps(accounts, s.load("revenue-lead-status")!, { limit: 20, now: NOW });
+    const weit = selectFollowUps(accounts, s.load("revenue-lead-status")!, { limit: 20, now: NOW, maxWorkdays: 40 });
+    assert.equal(eng.batch.length, 0);
+    assert.equal(weit.batch.length, 1);
   });
 });
 
