@@ -22,6 +22,7 @@ export interface RawLead {
   industry?: string;
   product_category?: string;
   employees?: number;
+  country?: string;
   revenue?: string;
   director?: string;
   buyer_titles?: string[];
@@ -52,6 +53,10 @@ export interface Account {
   contactTitle?: string;
   email?: string;
   employees?: number;
+  /** Sitzland aus dem CRM. Wird durchgereicht, damit Auswahlregeln DACH von
+   *  Frankreich und den USA unterscheiden koennen — der Nachfass-Lauf schlug
+   *  sonst Procotex France und Teknor Apex vor. */
+  country?: string;
   revenueText?: string;
   painPoints: string[];
   certifications: string[];
@@ -131,6 +136,7 @@ export function normalize(l: RawLead, index: number): Account {
     ...(l.buyer_titles?.[0] || l.director ? { contactTitle: l.buyer_titles?.[0] ?? l.director } : {}),
     ...(l.email ? { email: l.email } : {}),
     ...(typeof l.employees === "number" ? { employees: l.employees } : {}),
+    ...(l.country ? { country: l.country } : {}),
     ...(l.revenue ? { revenueText: l.revenue } : {}),
     painPoints: pains.length ? pains : asArray(l.why).slice(0, 3),
     certifications: asArray(l.certifications),

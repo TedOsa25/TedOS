@@ -684,6 +684,8 @@ export interface FollowUpSelection {
   tooEarly: number;
   /** Zu lange her — ein "Re:" wäre dort keine Fortsetzung mehr, sondern neu. */
   tooLate: number;
+  /** Würde heute keinen Erstkontakt bekommen (Adresse unbelegt, Größe, Land). */
+  ungeeignet: number;
   /** Bereits zweimal nachgefasst — die Sequenz endet dort. */
   exhausted: number;
   /** Aus dem Nachfassen genommen, weil reagiert/gesperrt (mit Grund). */
@@ -707,27 +709,35 @@ export interface FollowUpSelection {
 export function selectFollowUps(
   accounts: Account[],
   statusMap: Record<string, LeadRecord>,
-  opts: { limit: number; now: string; minWorkdays1?: number; minWorkdays2?: number; maxWorkdays?: number },
+  opts: { limit: number; now: string; minWorkdays1?: number; minWorkdays2?: number; maxWorkdays?: number; eligible?: (a: Account) => boolean },
 ): FollowUpSelection {
   const min1 = opts.minWorkdays1 ?? 4;
   const min2 = opts.minWorkdays2 ?? 5;
   /**
-   * Obergrenze — vorher gab es nur eine Mindestwartezeit.
+   * Obergrenze — vorher gab es gar keine, jetzt eine weite.
    *
-   * Zusammen mit der Sortierung "älteste zuerst" griff der Lauf damit
-   * systematisch die abgestandensten Kontakte ab: am 18.08. standen 20
-   * Kandidaten mit 31 Werktagen seit dem Erstkontakt in der Auswahl, also über
-   * sechs Wochen. Die Nachfassmail geht als "Re: <Originalbetreff>" raus — nach
-   * sechs Wochen ist das kein Nachfassen mehr, sondern eine Kaltmail mit einem
-   * Betreff, der eine Vorkorrespondenz behauptet, an die sich niemand erinnert.
+   * Erster Anlauf waren 15 Werktage, mit der Begründung, ein "Re:" nach sechs
+   * Wochen behaupte eine Vorkorrespondenz, an die sich niemand erinnert. Das
+   * war Plausibilität, keine Messung, und die Messung sagt etwas anderes:
+   * Bcomp Ltd bat am 17.08. um eine Demo — einen Tag nach einer Nachfassmail,
+   * die RUND 30 WERKTAGE nach dem Erstkontakt raus ging. Damit stammt eine der
+   * beiden Conversions der Kampagne aus genau dem Bereich, den die 15 gesperrt
+   * hätten. (0 von 40 unter 15 WT gegen 1 von 80 über 25 WT entscheidet nichts
+   * — aber es stützt die enge Grenze eben auch nicht, und sie hätte 1.339
+   * Leads gekostet.)
    *
-   * 15 Werktage sind rund drei Wochen: lange genug für Urlaub und Krankheit,
-   * kurz genug, dass der Faden noch echt ist. Wer darüber liegt, ist kein
-   * Nachfass-Fall — er gehört in eine neue Kampagne mit eigenem Betreff.
+   * Der Auslöser für die Grenze war ein anderer: eine Auswahl voller
+   * Fraunhofer-Institut, US-Konzerne und ir@conti.de. Die war nicht schlecht,
+   * WEIL sie alt war, sondern weil sie aus der Zeit vor den Qualitätsfiltern
+   * stammte. Alter war der falsche Stellvertreter für Qualität — dafür gibt es
+   * jetzt `eligible` unten, das dieselbe Regel anlegt wie der Erstkontakt.
+   *
+   * 60 Werktage bleiben als Absurditätsgrenze: nach einem Vierteljahr ist ein
+   * "Re:" auch beim besten Lead keine Fortsetzung mehr.
    */
-  const max = opts.maxWorkdays ?? 15;
+  const max = opts.maxWorkdays ?? 60;
   const excluded: Record<string, number> = {};
-  let sent = 0, tooEarly = 0, exhausted = 0, tooLate = 0;
+  let sent = 0, tooEarly = 0, exhausted = 0, tooLate = 0, ungeeignet = 0;
   const cands: FollowUpCandidate[] = [];
 
   for (const a of prioritize(accounts)) {
@@ -751,6 +761,11 @@ export function selectFollowUps(
     const stage: 1 | 2 = r.followup1_at ? 2 : 1;
     if (wd < (stage === 1 ? min1 : min2)) { tooEarly += 1; continue; }
     if (wd > max) { tooLate += 1; continue; }
+    // Dieselbe Qualitätsregel wie beim Erstkontakt. Ohne sie schlug der Lauf
+    // ein Fraunhofer-Institut, zwei US-Konzerne und ir@conti.de vor — Kontakte
+    // aus der Zeit, bevor es Filter gab. Wer heute keinen Erstkontakt bekäme,
+    // bekommt auch keine Nachfassmail.
+    if (opts.eligible && !opts.eligible(a)) { ungeeignet += 1; continue; }
     cands.push({ account: a, stage, workdays: wd });
   }
 
@@ -758,7 +773,7 @@ export function selectFollowUps(
   // längsten wartet. Ohne die Obergrenze oben zog diese Sortierung die
   // ungeeignetsten Kontakte nach vorn.
   cands.sort((x, y) => y.workdays - x.workdays);
-  return { batch: cands.slice(0, opts.limit), sent, eligible: cands.length, tooEarly, tooLate, exhausted, excluded };
+  return { batch: cands.slice(0, opts.limit), sent, eligible: cands.length, tooEarly, tooLate, ungeeignet, exhausted, excluded };
 }
 
 const INBOX_SCAN_KEY = "revenue-inbox-scan";

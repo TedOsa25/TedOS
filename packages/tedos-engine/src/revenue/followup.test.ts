@@ -95,22 +95,39 @@ describe("selectFollowUps: wer KEINE Nachfassmail bekommt", () => {
   // zog die Sortierung "älteste zuerst" genau die Kontakte nach vorn, bei denen
   // dieser Betreff eine Vorkorrespondenz behauptet, an die sich niemand mehr
   // erinnert: am 18.08. standen 20 Kandidaten mit 31 Werktagen in der Auswahl.
-  test("nach dem Fenster wird nicht mehr nachgefasst — ein 'Re:' wäre dort gelogen", () => {
-    const s = store({
-      alt: { status: "sent", sent_at: "2026-06-01T09:00:00Z" },  // ~50 WT
-      neu: { status: "sent", sent_at: "2026-08-03T09:00:00Z" },  // 6 WT
-    });
-    const sel = selectFollowUps([acct("alt", 0), acct("neu", 1)], s.load("revenue-lead-status")!, { limit: 20, now: NOW });
-    assert.deepEqual(sel.batch.map((x) => x.account.id), ["neu"]);
-    assert.equal(sel.tooLate, 1);
-  });
-
   test("die Obergrenze ist einstellbar", () => {
     const s = store({ a: { status: "sent", sent_at: "2026-07-20T09:00:00Z" } }); // 16 WT
-    const eng = selectFollowUps(accounts, s.load("revenue-lead-status")!, { limit: 20, now: NOW });
-    const weit = selectFollowUps(accounts, s.load("revenue-lead-status")!, { limit: 20, now: NOW, maxWorkdays: 40 });
-    assert.equal(eng.batch.length, 0);
+    const weit = selectFollowUps(accounts, s.load("revenue-lead-status")!, { limit: 20, now: NOW });
+    const eng = selectFollowUps(accounts, s.load("revenue-lead-status")!, { limit: 20, now: NOW, maxWorkdays: 10 });
     assert.equal(weit.batch.length, 1);
+    assert.equal(eng.batch.length, 0);
+    assert.equal(eng.tooLate, 1);
+  });
+
+  // Der eigentliche Filter ist die Qualität, nicht das Alter. Die Auswahl vom
+  // 18.08. enthielt ein Fraunhofer-Institut, zwei US-Konzerne und ir@conti.de —
+  // nicht weil sie alt war, sondern weil sie aus der Zeit vor den Filtern
+  // stammte. Wer heute keinen Erstkontakt bekäme, bekommt auch keine
+  // Nachfassmail.
+  test("wer heute keinen Erstkontakt bekäme, bekommt auch keine Nachfassmail", () => {
+    const s = store({
+      gut:  { status: "sent", sent_at: VOR_6_WT },
+      raus: { status: "sent", sent_at: VOR_6_WT },
+    });
+    const sel = selectFollowUps(
+      [acct("gut", 0), acct("raus", 1)],
+      s.load("revenue-lead-status")!,
+      { limit: 20, now: NOW, eligible: (a) => a.id === "gut" },
+    );
+    assert.deepEqual(sel.batch.map((x) => x.account.id), ["gut"]);
+    assert.equal(sel.ungeeignet, 1);
+  });
+
+  test("ein alter, aber geeigneter Lead bleibt drin — Bcomp kam nach ~30 Werktagen", () => {
+    const s = store({ a: { status: "sent", sent_at: "2026-06-29T09:00:00Z" } }); // ~31 WT
+    const sel = selectFollowUps(accounts, s.load("revenue-lead-status")!, { limit: 20, now: NOW });
+    assert.equal(sel.batch.length, 1);
+    assert.equal(sel.tooLate, 0);
   });
 });
 

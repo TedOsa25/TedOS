@@ -22,7 +22,7 @@
 //   npm run followup:send -- --apply # versenden (zusätzlich REVENUE_SEND_ENABLED=1)
 
 import { createStorage } from "./../storage.js";
-import { loadAccounts } from "./accounts.js";
+import { loadAccounts, type Account } from "./accounts.js";
 import { activeBrandProfile } from "./brand-profile.js";
 import { selectedProviderName, getProvider, isSendArmed, dispatch, type OutboundEmail } from "./sending.js";
 import { buildOpportunity } from "./revenue-engine.js";
@@ -38,8 +38,8 @@ const APPLY = process.argv.includes("--apply");
 const LIMIT = Number(process.env.REVENUE_FOLLOWUP_SIZE ?? 20);
 const MIN1 = Number(process.env.REVENUE_FOLLOWUP_MIN1 ?? 4);
 const MIN2 = Number(process.env.REVENUE_FOLLOWUP_MIN2 ?? 5);
-/** Obergrenze in Werktagen — darüber ist ein "Re:" keine Fortsetzung mehr. */
-const MAX = Number(process.env.REVENUE_FOLLOWUP_MAX ?? 15);
+/** Absurditätsgrenze in Werktagen. Qualität filtert `eligible`, nicht das Alter. */
+const MAX = Number(process.env.REVENUE_FOLLOWUP_MAX ?? 60);
 const SENDER = {
   email: process.env.REVENUE_FROM_EMAIL ?? activeBrandProfile().identity.senderEmail,
   name: process.env.REVENUE_FROM_NAME ?? activeBrandProfile().identity.senderName,
@@ -65,13 +65,62 @@ async function main(): Promise<void> {
 
   const accounts = loadAccounts();
   const statusMap = loadLeadStatus(storage);
-  const sel = selectFollowUps(accounts, statusMap, { limit: LIMIT, now, minWorkdays1: MIN1, minWorkdays2: MIN2, maxWorkdays: MAX });
+  /**
+   * Wer heute keinen Erstkontakt bekäme, bekommt auch keine Nachfassmail.
+   *
+   * Was hier NICHT geprüft wird: ob die Adresse im Impressum belegt ist. Diese
+   * Hürde gilt dem Erstkontakt, wo eine geratene Adresse 17,5 % Bounce
+   * bedeutete. Bei einem bereits kontaktierten Lead ist die ZUSTELLUNG der
+   * Beleg — die Mail ging raus und kam nicht zurück, sonst stünde er auf
+   * "bounced" und wäre ohnehin gesperrt. Ein erster Anlauf verlangte den
+   * Impressum-Nachweis trotzdem und sperrte damit 1.524 von 1.727 Kontakten,
+   * also praktisch die ganze Kampagne.
+   *
+   * Was bleibt, sind die Fehler, die eine Zustellung NICHT ausschließt:
+   * das falsche Postfach (ir@conti.de ist Investor Relations) und die falsche
+   * Firmengröße (Continental hat 200.000 Mitarbeitende).
+   */
+  const eligible = (a: Account): boolean => {
+    // 1) Falsches Postfach. ir@conti.de ist Investor Relations.
+    const local = String(a.email ?? "").split("@")[0]?.toLowerCase() ?? "";
+    if (/^(ir|pr|presse|press|jobs|karriere|bewerbung|datenschutz|webmaster|invest)/.test(local)) return false;
+
+    // 2) KEINE Untergrenze bei der Größe.
+    //
+    // Ein erster Anlauf verlangte 200–4.000 Mitarbeitende, abgeleitet aus der
+    // Kundenliste des Wettbewerbers. Bcomp Ltd hat 51 — und Bcomp ist die
+    // Firma, die am 17.08. um eine Demo bat, ausgelöst durch die Nachfassmail
+    // vom Vortag. Die Untergrenze hätte genau diese Mail verhindert. REEL, die
+    // einzige gebuchte Demo, hat überhaupt keine hinterlegte Zahl.
+    //
+    // Beide Erfolge, die wir haben, wären an einer Größenregel gescheitert.
+    // Sie taugt als Rangfolge, nicht als Ausschluss. Was bleibt, ist die
+    // Obergrenze: bei Continental (200.000 MA) entscheidet niemand über
+    // info@ — dort ist der KANAL falsch, nicht die Größe.
+    const e = typeof a.employees === "number" && a.employees > 0 ? a.employees : null;
+    if (e !== null && e > 10_000) return false;
+
+    // 3) Ausserhalb DACH. Wir verkaufen deutschsprachig, mit CSRD- und
+    //    Catena-X-Aufhänger. Procotex France und Teknor Apex standen in der
+    //    Auswahl, ohne dass die Mail für sie je gedacht war.
+    const land = String(a.country ?? "").trim().toLowerCase();
+    if (land && !/^(de|at|ch|deutschland|germany|österreich|osterreich|austria|schweiz|switzerland)$/.test(land)) return false;
+
+    // 4) Forschungsinstitute, Hochschulen und Verbände stellen nichts her,
+    //    für das sich ein Product Carbon Footprint rechnen liesse.
+    if (/fraunhofer|institut\b|institute\b|universit|hochschule|akademie|verband|e\.\s?V\.$/i.test(String(a.company ?? ""))) return false;
+
+    return true;
+  };
+
+  const sel = selectFollowUps(accounts, statusMap, { limit: LIMIT, now, minWorkdays1: MIN1, minWorkdays2: MIN2, maxWorkdays: MAX, eligible });
 
   console.log(`\n── Auswahl ──`);
   console.log(`  Kontaktiert (Status "sent") : ${sel.sent}`);
   console.log(`  Fällig                      : ${sel.eligible}`);
   console.log(`  Noch zu früh                : ${sel.tooEarly}`);
   console.log(`  Zu lange her (> ${String(MAX).padStart(2)} WT)      : ${sel.tooLate}`);
+  console.log(`  Bekäme heute keinen Erstkontakt: ${sel.ungeeignet}`);
   console.log(`  Sequenz beendet (2 gesendet): ${sel.exhausted}`);
   for (const [k, v] of Object.entries(sel.excluded)) console.log(`  Ausgeschlossen (${k}): ${v}`);
   console.log(`  → in diesem Lauf            : ${sel.batch.length}`);
