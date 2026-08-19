@@ -38,7 +38,11 @@ export const GROSSKONZERN_DOMAINS: ReadonlySet<string> = new Set([
   "zf.com", "bosch.com", "bosch.de", "hella.com", "brose.com", "webasto.com",
   "draexlmaier.com", "benteler.com", "vitesco-technologies.com",
   "leoni.com", "aptiv.com", "valeo.com", "magna.com",
-  "kostal.com", "rehau.com", "mubea.com", "kirchhoff-automotive.com",
+  // kirchhoff-automotive.com stand hier mit "~13.000" — aus dem Gedächtnis.
+  // Wikidata (Q15727791, per Domain-Abgleich bestätigt) nennt 8.400: mitten im
+  // Zielprofil. Belegte Zahlen schlagen diese Liste; sie ist nur der Notbehelf
+  // für Firmen, zu denen es keine gibt.
+  "kostal.com", "rehau.com", "mubea.com",
   // Chemie / Werkstoffe
   "basf.com", "evonik.com", "covestro.com", "lanxess.com", "wacker.com",
   "henkel.com", "arkema.com",

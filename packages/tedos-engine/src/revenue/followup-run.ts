@@ -104,8 +104,13 @@ async function main(): Promise<void> {
     // Sie taugt als Rangfolge, nicht als Ausschluss. Was bleibt, ist die
     // Obergrenze: bei Continental (200.000 MA) entscheidet niemand über
     // info@ — dort ist der KANAL falsch, nicht die Größe.
+    // Obergrenze 2.000, nicht 10.000: Unternehmen dieser Groesse haben in aller
+    // Regel bereits eine Loesung im Einsatz — dann ist auch die zweite Mail
+    // vergeblich. Deckt sich mit dem, was wir sehen: zur Demo kamen Bcomp
+    // (51 MA) und REEL; die Antworten bei 1.200 MA blieben Antworten.
+    // Betrifft 199 der 1.742 nachfassbaren Leads.
     const e = typeof a.employees === "number" && a.employees > 0 ? a.employees : null;
-    if (e !== null && e > 10_000) return false;
+    if (e !== null && e > 2_000) return false;
     // Dieselbe Obergrenze für die 55 % der Leads, bei denen die Zahl im CRM
     // fehlt — siehe grossunternehmen.ts. Ohne das schlug der Lauf Schaeffler,
     // MAHLE, Freudenberg, Knorr-Bremse, MANN+HUMMEL und Eberspächer in einem
@@ -125,7 +130,9 @@ async function main(): Promise<void> {
     //    der Zukunft" verrät sich nirgends im Namen, schreibt aber von
     //    mail@kunststoff-institut.de. Der Name ist die Marke, die Domain die
     //    Einrichtung dahinter.
-    const INSTITUT = /fraunhofer|institut|universit|hochschule|akademie|verband|\be\.\s?v\.?\b/i;
+    // "Deutsches Zentrum für Luft- und Raumfahrt" traegt kein "Institut" im
+    // Namen und ist doch eine Forschungseinrichtung.
+    const INSTITUT = /fraunhofer|institut|universit|hochschule|akademie|verband|forschungs|zentrum für|\be\.\s?v\.?\b/i;
     if (INSTITUT.test(`${a.company ?? ""} ${a.email ?? ""} ${a.website ?? ""}`)) return false;
 
     return true;
