@@ -7,7 +7,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { stripQuotedReply, isOptOutMessage, isAutoAcknowledgement } from "./inbox-classify.js";
+import { stripQuotedReply, isOptOutMessage, isAutoAcknowledgement, isMaschinenpost } from "./inbox-classify.js";
 
 const HEADERS = [
   "Return-Path: <kunde@example.de>",
@@ -130,5 +130,31 @@ describe("isAutoAcknowledgement: Ticketsysteme sind keine Antworten", () => {
 
   test("ein blosses 'Ihre Anfrage' ohne Vorgangsnummer bleibt eine Antwort", () => {
     assert.equal(isAutoAcknowledgement("Ihre Anfrage", quotedReply("Wir haben Interesse.")), false);
+  });
+});
+
+describe("isMaschinenpost: DMARC-Berichte sind keine Antworten", () => {
+  test("DMARC-Aggregatberichte der grossen Anbieter", () => {
+    for (const [from, subject] of [
+      ["dmarcreport@microsoft.com", "[Preview] Report Domain: heycarbo.com Submitter: enterprise.protection.outlook.com"],
+      ["noreply-dmarc-support@google.com", "Report domain: heycarbo.com Submitter: google.com Report-ID: 8206349"],
+      ["no-reply@eu-2.mimecastreport.com", "Report domain: heycarbo.com Submitter: mimecast.org Report-ID: 82e7bea"],
+      ["dmarc-noreply@jab.de", "Report Domain: heycarbo.com Submitter: jab.de Report-ID: <0f6a18$>"],
+    ] as [string, string][]) {
+      assert.equal(isMaschinenpost(from, subject), true, `${from} nicht erkannt`);
+    }
+  });
+
+  test("eine echte Antwort bleibt eine Antwort — auch von einem noreply-Absender", () => {
+    // Der zitierte Betreff schlägt jede Absenderheuristik. Sonst geht genau die
+    // Nachricht verloren, wegen der das Postfach ueberhaupt gelesen wird.
+    assert.equal(isMaschinenpost("oleh.pokidko@bcomp.ch", " RE: Bcomp Ltd: CO₂-Bilanz & PCF in Minuten"), false);
+    assert.equal(isMaschinenpost("ayah.al-jbour@nkmnoell.com", "RE: HeyCarbo Login and Demo Report"), false);
+    assert.equal(isMaschinenpost("noreply@kunde.de", "AW: Ihre Anfrage"), false);
+  });
+
+  test("gewoehnliche Geschaeftspost wird nicht faelschlich aussortiert", () => {
+    assert.equal(isMaschinenpost("einkauf@kunde.de", "Interesse an einem Termin"), false);
+    assert.equal(isMaschinenpost("info@zulieferer.de", "Ihre Nachricht vom 6. Juli"), false);
   });
 });

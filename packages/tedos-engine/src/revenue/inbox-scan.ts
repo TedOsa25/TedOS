@@ -21,7 +21,8 @@ import { ImapFlow } from "imapflow";
 import { createStorage } from "./../storage.js";
 import { loadAccounts } from "./accounts.js";
 import { markBounced, unsubscribeLead, recordInboxScan, markReplied, loadLeadStatus } from "./batch-send.js";
-import { isOptOutMessage, isAutoAcknowledgement } from "./inbox-classify.js";
+import { isOptOutMessage, isAutoAcknowledgement, isMaschinenpost } from "./inbox-classify.js";
+import { berlinDatum } from "./zeit.js";
 
 /** Opt-in write mode: suppress hard-bounced addresses in the lead store. */
 const WRITE_SUPPRESSION = process.argv.includes("--write-suppression");
@@ -220,6 +221,10 @@ async function main(): Promise<void> {
           kind = "auto-reply";
         } else if (isOptOutMessage(subject, source)) {
           kind = "opt-out";
+        } else if (isMaschinenpost(from, subject)) {
+          // DMARC-Berichte, Newsletter, Dienst-Benachrichtigungen. Vorher fielen
+          // die in "reply" und blähten die Antwortquote um das Sechsfache auf.
+          kind = "other";
         } else if (from && !from.includes("heycarbo.com")) {
           // Inbound from a real external sender that isn't a bounce/auto — a human reply.
           kind = "reply";
@@ -396,6 +401,24 @@ async function main(): Promise<void> {
   console.log(`Im CRM zugeordnet       : ${replyMatched.length} Lead(s)`);
   if (replyUnmatched.length) {
     console.log(`  ohne CRM-Treffer      : ${replyUnmatched.length} (Antworten von anderen Adressen als der angeschriebenen)`);
+    // AUFLISTEN, nicht nur zählen. Diese Antworten sind die wertvollsten
+    // Nachrichten im ganzen Postfach und die einzigen, die das System nicht
+    // selbst verbuchen kann — der Absender passt zu keinem Lead, weil im
+    // Unternehmen jemand anderes zurückschreibt als das angeschriebene
+    // Sammelpostfach. Die Demo-Anfrage von Bcomp am 17.08. war genau so ein
+    // Fall: gezählt, nicht angezeigt, und erst aufgefallen, weil sie jemand von
+    // Hand weitergeleitet hat. Eine Zahl ohne Namen ist hier wertlos.
+    console.log("\n  ⚠ BITTE PRÜFEN — diese Antworten muss ein Mensch zuordnen:");
+    for (const e of replyUnmatched) {
+      const nachricht = by.reply.find((r) => r.from === e);
+      const domain = e.split("@")[1] ?? "";
+      // Firma über die Absenderdomain suchen — trifft genau die Fälle, in denen
+      // eine Person aus demselben Unternehmen antwortet.
+      const firma = accounts.find((a) => String(a.email ?? "").toLowerCase().endsWith(`@${domain}`))?.company;
+      console.log(`     ✉ ${e.padEnd(38)} ${firma ? `→ vermutlich ${firma}` : "(keine Firma zur Domain im CRM)"}`);
+      if (nachricht?.subject) console.log(`        „${nachricht.subject.slice(0, 78)}“  ${berlinDatum(nachricht.date)}`);
+    }
+    console.log("");
   }
   let replyWritten = 0;
   for (const m of replyMatched) {

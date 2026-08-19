@@ -110,3 +110,39 @@ export function isAutoAcknowledgement(subject: string, rawSource: string): boole
   if (typed.length > 900) return false;
   return ACK_PATTERNS.some((re) => re.test(typed));
 }
+
+/**
+ * Maschinenpost, die KEINE Antwort auf unsere Kampagne ist.
+ *
+ * Der Klassifikator kannte drei Ausnahmen — Bounce, Abwesenheitsnotiz,
+ * Abmeldung — und verbuchte alles Übrige von externen Absendern als "echte
+ * Antwort". Am 19.08. standen so 13 Antworten im Bericht, von denen ZWEI echt
+ * waren: die Demo-Anfrage von Bcomp und eine Mail von REEL. Die restlichen elf
+ * waren sechs DMARC-Aggregatberichte, zwei Calendly-Newsletter, eine
+ * IONOS-Login-Benachrichtigung und zwei weitere Reports.
+ *
+ * Das ist nicht nur Rauschen im Log: die Antwortquote ist die Kennzahl, an der
+ * Kampagnenentscheidungen hängen, und sie war um das Sechsfache überhöht. Die
+ * echten Antworten gingen zwischen den Berichten unter — die Bcomp-Anfrage fiel
+ * nur auf, weil sie jemand von Hand weitergeleitet hat.
+ *
+ * Absichtlich eng gefasst: erkannt werden nur Muster, die es bei einer
+ * geschriebenen Antwort nicht gibt. Ein "RE:"/"AW:" im Betreff hebt die
+ * Einstufung wieder auf — wer auf unsere Mail antwortet, darf noreply@ im
+ * Absender stehen haben, ohne verloren zu gehen.
+ */
+const MASCHINE_BETREFF: RegExp[] = [
+  /^\s*\[?preview\]?\s*report domain:/i,   // Microsoft
+  /^\s*report[ _-]?domain:/i,              // Google, Mimecast, generische DMARC-Sender
+  /submitter:\s*\S+\s+report-id:/i,
+];
+const MASCHINE_ABSENDER =
+  /^(dmarc|dmarc-?report|dmarc-?noreply|dmarc-?support|noreply-?dmarc|postmaster|mailer-daemon)\b/i;
+
+export function isMaschinenpost(from: string, subject: string): boolean {
+  // Eine echte Antwort trägt den zitierten Betreff — das schlägt alles andere.
+  if (/^\s*(re|aw|wg|fwd?)\s*:/i.test(subject)) return false;
+  if (MASCHINE_BETREFF.some((re) => re.test(subject))) return true;
+  const local = String(from).split("@")[0] ?? "";
+  return MASCHINE_ABSENDER.test(local);
+}
