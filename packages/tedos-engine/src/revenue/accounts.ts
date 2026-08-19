@@ -118,6 +118,24 @@ function rawField(l: RawLead, name: string): string[] | string | undefined {
 }
 
 /** Normalize + re-score one raw lead. */
+/**
+ * Wikipedia-Begriffsklaerungen aus dem Firmennamen entfernen.
+ *
+ * Der Import brachte 77 Datensaetze wie "Eibach (Unternehmen)" oder
+ * "BBS (Marke)" mit — der Zusatz stammt aus dem Artikeltitel und trennt dort
+ * Gleichnamiges. In der Mail landete er woertlich: "falls CO2-Bilanzierung bei
+ * Eibach (Unternehmen) gerade Thema ist". 38 solche Mails sind bereits raus.
+ *
+ * NUR Begriffsklaerungen entfernen: "Karl-Heinz Arnold GmbH (ARNO Werkzeuge)"
+ * traegt in der Klammer den gelaeufigen Markennamen und bleibt unangetastet.
+ */
+export function firmenname(roh: unknown): string {
+  return String(roh ?? "")
+    .replace(/\s*\((Unternehmen|Firma|Konzern|Marke|Begriffskl[äa]rung)\)\s*/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export function normalize(l: RawLead, index: number): Account {
   const fitScore = clamp100(typeof l.score === "number" ? (l.score <= 1 ? l.score * 100 : l.score) : 50);
   const revenueScore = revenueScoreOf(l);
@@ -127,7 +145,7 @@ export function normalize(l: RawLead, index: number): Account {
   const pains = asArray(rawField(l, activeBrandProfile().data.painField));
   return {
     id: l.id ?? `acct-${index + 1}`,
-    company: (l.name ?? "").trim() || `Account ${index + 1}`,
+    company: firmenname(l.name) || `Account ${index + 1}`,
     industry: (l.industry || l.segment || l.product_category || "Unbekannt").trim(),
     ...(l.segment ? { segment: l.segment } : {}),
     ...(l.product_category ? { products: l.product_category } : {}),
