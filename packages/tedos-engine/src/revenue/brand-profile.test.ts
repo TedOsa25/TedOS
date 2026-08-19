@@ -102,8 +102,14 @@ describe("brand-profile: HeyCarbo extraction fidelity", () => {
   test("summary lead + CTA + follow-ups match the hardcoded copy", () => {
     assert.equal(hc.copy.summaryLead, "Warum HeyCarbo passt");
     assert.equal(hc.copy.ctaText, "7 Tage kostenlos testen");
-    assert.match(hc.copy.followUp1(account()), /HeyCarbo den Aufwand senkt/);
-    assert.match(hc.copy.followUp2(account(), { campaign: "csrd", calendlyUrl: "https://cal/x" }), /csrd-Themen.*https:\/\/cal\/x/);
+    assert.match(hc.copy.followUp1(account()), /HeyCarbo den Aufwand dafür senkt/);
+    // Frueher stand hier /csrd-Themen/ — das technische Kuerzel aus dem Store
+    // landete ungefiltert im Satz ("Wenn scope-3-Themen fuer X relevant werden").
+    // Jetzt ein lesbarer Name, und "das Thema" davor haelt die Kongruenz.
+    const fu2 = hc.copy.followUp2(account(), { campaign: "csrd", calendlyUrl: "https://cal/x" });
+    assert.match(fu2, /Sollte das Thema CSRD-Berichtspflicht/);
+    assert.match(fu2, /https:\/\/cal\/x/);
+    assert.doesNotMatch(fu2, /csrd-Themen/);
     assert.equal(hc.copy.queueSubjectFallback("GRAFE GmbH"), "GRAFE GmbH: CO₂-Daten");
   });
 });

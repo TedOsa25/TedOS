@@ -140,6 +140,33 @@ function painPhrase(a: Account, bucket: Bucket): string {
   }
 }
 
+/**
+ * Der BEDARF dieses Empfaengers als Nominalphrase (Plural).
+ *
+ * Dieselbe Ableitung wie im Erstkontakt — Branche, OEM-Druck, CSRD-Signal. Das
+ * Nachfassen hatte bisher EINEN Satz fuer alle: "falls CO2-Bilanzierung und
+ * PCF-Daten bei X gerade Thema sind". Ein Werkzeugbauer und eine Molkerei
+ * bekamen denselben Text, obwohl der Erstkontakt sie sauber unterschieden hat.
+ */
+export function bedarfsPhrase(a: Account): string {
+  return painPhrase(a, classifyIndustry(a.industry));
+}
+
+/**
+ * Lesbarer Name der Kampagne. Im Store stehen technische Kuerzel ("scope-3",
+ * "catena-x"), und die zweite Nachfassmail setzte sie ungefiltert in den Satz:
+ * "Wenn scope-3-Themen fuer Koinor spaeter relevant werden".
+ */
+export function kampagnenName(campaign: string): string {
+  const k = String(campaign ?? "").toLowerCase();
+  if (k.includes("catena")) return "Catena-X und PCF";
+  if (k.includes("pcf")) return "Product Carbon Footprints";
+  if (k.includes("scope")) return "Scope-3-Bilanzierung";
+  if (k.includes("csrd")) return "CSRD-Berichtspflicht";
+  if (k.includes("supplier")) return "CO₂-Daten für Ihre Kunden";
+  return "CO₂-Bilanzierung";
+}
+
 /** Sentence 1 tail when NO real customer/OEM names exist — anchored on the branch. */
 /**
  * Erster Satz, wenn weder OEMs noch Kunden im CRM stehen.

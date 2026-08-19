@@ -343,3 +343,39 @@ describe("Konsumgüter: Handel statt Industriekunden", () => {
     assert.match(einstieg, /im Bereich Medizintechnik fertigt/);
   });
 });
+
+describe("Nachfassen spricht dieselbe Sprache wie der Erstkontakt", () => {
+  const lead = (industry: string) =>
+    normalize({ id: "F1", name: "Musterfirma GmbH", industry, email: "info@musterfirma.de" } as never, 0);
+  const fu1 = (industry: string) =>
+    buildOpportunity(lead(industry), () => "2026-08-19T09:00:00.000Z", "E").followUp1;
+
+  // Vorher gab es EINEN Nachfasssatz fuer alle: "falls CO₂-Bilanzierung und
+  // PCF-Daten bei X gerade Thema sind". Ein Werkzeugbauer und eine Molkerei
+  // bekamen denselben Text, obwohl der Erstkontakt sie sauber unterscheidet.
+  test("der Bedarf im Nachfassen richtet sich nach der Branche", () => {
+    assert.match(fu1("Automotive / Zulieferer"), /Catena-X/);
+    assert.match(fu1("Maschinenbau"), /Scope-3/);
+    assert.match(fu1("Möbel"), /Umweltproduktdeklarationen/);
+    assert.match(fu1("Pharma"), /je Produkt/);
+  });
+
+  test("verschiedene Branchen bekommen verschiedene Texte", () => {
+    const texte = new Set(["Automotive / Zulieferer", "Maschinenbau", "Möbel", "Pharma", "Logistik"].map(fu1));
+    assert.equal(texte.size, 5, "mindestens eine Branche teilt sich noch einen Text");
+  });
+
+  // ctx.campaign ist ein technisches Kuerzel ("scope-3"). Ungefiltert stand es
+  // kleingeschrieben mitten im Satz; ohne "das Thema" davor stimmte ausserdem
+  // die Kongruenz nicht ("Sollte Product Carbon Footprints ...").
+  test("die zweite Nachfassmail nennt kein technisches Kuerzel und ist grammatisch korrekt", () => {
+    for (const b of ["Automotive / Zulieferer", "Maschinenbau", "Möbel", "Pharma"]) {
+      const fu2 = buildOpportunity(lead(b), () => "2026-08-19T09:00:00.000Z", "E").followUp2;
+      // Case-sensitive: "Catena-X und PCF" ist der LESBARE Name und erlaubt.
+      // Verboten sind die kleingeschriebenen Store-Kuerzel und die alte
+      // "-Themen"-Konstruktion.
+      assert.doesNotMatch(fu2, /\bscope-3\b|\bcatena-x\b|-Themen\b/, `${b}: technisches Kuerzel im Text`);
+      assert.match(fu2, /Sollte das Thema /, `${b}: Kongruenz-Konstruktion fehlt`);
+    }
+  });
+});

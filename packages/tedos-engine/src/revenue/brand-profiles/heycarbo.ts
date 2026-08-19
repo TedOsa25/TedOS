@@ -7,6 +7,7 @@ import type { Account } from "../accounts.js";
 import type { BrandProfile } from "../brand-profile.js";
 import {
   HEYCARBO_VALUE, HEYCARBO_CLOSING, needLeadHeycarbo, selectCampaignHeycarbo, researchIntro, germanizePain,
+  bedarfsPhrase, kampagnenName,
 } from "../email-copy.js";
 
 const WEBSITE = "https://heycarbo.com";
@@ -69,10 +70,20 @@ export const HEYCARBO_PROFILE: BrandProfile = {
       "CO₂-Bilanzen & Product Carbon Footprints in Minuten – auditfähig, für den Mittelstand.",
     linkedin: (a: Account) =>
       `Guten Tag, ich verfolge, wie ${a.industry}-Unternehmen wie ${a.company} das Thema CO₂-/Scope-3-Daten angehen. Falls das bei Ihnen gerade Thema ist, tausche ich mich gern kurz aus — ganz unverbindlich.`,
+    // NACH BEDARF, nicht mehr ein Satz für alle. Die Phrase kommt aus derselben
+    // Ableitung wie der Erstkontakt (Branche · OEM-Druck · CSRD-Signal), damit
+    // Erstmail und Nachfassmail dieselbe Sprache sprechen — ein Werkzeugbauer
+    // und eine Molkerei bekamen vorher denselben Text.
     followUp1: (a: Account) =>
-      `Guten Tag, ich wollte kurz nachfassen — falls CO₂-Bilanzierung und PCF-Daten bei ${a.company} gerade Thema sind, zeige ich in 15 Minuten, wie HeyCarbo den Aufwand senkt. Passt diese Woche?`,
+      `Guten Tag, ich wollte kurz nachfassen. Falls ${bedarfsPhrase(a)} bei ${a.company} gerade anstehen, zeige ich Ihnen in 15 Minuten, wie HeyCarbo den Aufwand dafür senkt. Passt das diese Woche?`,
+    // ctx.campaign ist ein technisches Kürzel aus dem Store ("scope-3",
+    // "catena-x"). Ungefiltert ergab das "Wenn scope-3-Themen für Koinor später
+    // relevant werden" — maschinell und kleingeschrieben mitten im Satz.
     followUp2: (a: Account, ctx: { campaign: string; calendlyUrl: string }) =>
-      `Guten Tag, ich lasse es für heute dabei. Wenn ${ctx.campaign}-Themen für ${a.company} später relevant werden, melden Sie sich gern: ${ctx.calendlyUrl}`,
+      // "das Thema" davor, weil die Labels teils Plural sind: "Sollte Product Carbon
+      // Footprints ... " war schlicht falsches Deutsch. Mit "das Thema" stimmt die
+      // Kongruenz unabhaengig davon, was kampagnenName liefert.
+      `Guten Tag, ich lasse es dabei — Sie haben Wichtigeres zu tun. Sollte das Thema ${kampagnenName(ctx.campaign)} bei ${a.company} später auf den Tisch kommen, melden Sie sich gern: ${ctx.calendlyUrl}`,
     summaryLead: "Warum HeyCarbo passt",
     painFallback: (ctx: { campaign: string }) => `${ctx.campaign}-Anforderungen der Kunden.`,
     // MUSS zur tatsächlichen Testdauer passen: Migration 039 hat sie von 14 auf
