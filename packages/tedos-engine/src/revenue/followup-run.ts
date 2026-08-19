@@ -33,6 +33,7 @@ import {
 import { runPreflight, formatPreflight, recipientMxCheck, dnsMxResolver } from "./preflight.js";
 import { writeReportFile } from "./report-file.js";
 import { berlinDatum } from "./zeit.js";
+import { istGrosskonzern } from "./grossunternehmen.js";
 
 const APPLY = process.argv.includes("--apply");
 const LIMIT = Number(process.env.REVENUE_FOLLOWUP_SIZE ?? 20);
@@ -82,8 +83,14 @@ async function main(): Promise<void> {
    */
   const eligible = (a: Account): boolean => {
     // 1) Falsches Postfach. ir@conti.de ist Investor Relations.
+    //
+    //    AUCH ENGLISCH: der Filter kannte nur deutsche Bezeichnungen, und
+    //    data.protection.officer@hirschvogel.com kam dadurch bis in die
+    //    Auswahl — ein Datenschutzbeauftragter, angeschrieben mit einem
+    //    Vertriebsangebot. Genau die Adresse, die eine Beschwerde auslöst.
     const local = String(a.email ?? "").split("@")[0]?.toLowerCase() ?? "";
-    if (/^(ir|pr|presse|press|jobs|karriere|bewerbung|datenschutz|webmaster|invest)/.test(local)) return false;
+    const ROLLE = /^(ir|pr|presse|press|media|jobs|karriere|career|recruit|bewerbung|datenschutz|data[._-]?protection|privacy|dpo|legal|compliance|webmaster|invest|abuse)/;
+    if (ROLLE.test(local)) return false;
 
     // 2) KEINE Untergrenze bei der Größe.
     //
@@ -99,6 +106,11 @@ async function main(): Promise<void> {
     // info@ — dort ist der KANAL falsch, nicht die Größe.
     const e = typeof a.employees === "number" && a.employees > 0 ? a.employees : null;
     if (e !== null && e > 10_000) return false;
+    // Dieselbe Obergrenze für die 55 % der Leads, bei denen die Zahl im CRM
+    // fehlt — siehe grossunternehmen.ts. Ohne das schlug der Lauf Schaeffler,
+    // MAHLE, Freudenberg, Knorr-Bremse, MANN+HUMMEL und Eberspächer in einem
+    // einzigen Batch vor.
+    if (istGrosskonzern(a.email)) return false;
 
     // 3) Ausserhalb DACH. Wir verkaufen deutschsprachig, mit CSRD- und
     //    Catena-X-Aufhänger. Procotex France und Teknor Apex standen in der
@@ -108,7 +120,13 @@ async function main(): Promise<void> {
 
     // 4) Forschungsinstitute, Hochschulen und Verbände stellen nichts her,
     //    für das sich ein Product Carbon Footprint rechnen liesse.
-    if (/fraunhofer|institut\b|institute\b|universit|hochschule|akademie|verband|e\.\s?V\.$/i.test(String(a.company ?? ""))) return false;
+    //
+    //    AUCH die Adresse prüfen, nicht nur den Firmennamen: "Werkstoffforum
+    //    der Zukunft" verrät sich nirgends im Namen, schreibt aber von
+    //    mail@kunststoff-institut.de. Der Name ist die Marke, die Domain die
+    //    Einrichtung dahinter.
+    const INSTITUT = /fraunhofer|institut|universit|hochschule|akademie|verband|\be\.\s?v\.?\b/i;
+    if (INSTITUT.test(`${a.company ?? ""} ${a.email ?? ""} ${a.website ?? ""}`)) return false;
 
     return true;
   };
