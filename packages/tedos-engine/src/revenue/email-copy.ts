@@ -99,6 +99,12 @@ const signal = (v?: unknown): boolean => {
 type Bucket = "automotive" | "maschinenbau" | "chemie" | "pharma" | "logistik" | "elektronik" | "konsumgueter" | "generic";
 function classifyIndustry(industry: string): Bucket {
   const s = String(industry ?? "").toLowerCase();
+  // VOR automotive: "Freizeitfahrzeuge" enthaelt "fahrzeug" und landete deshalb
+  // im Automotive-Bucket. LMC Caravan baut Wohnwagen fuer Endkunden ueber den
+  // Fachhandel — der Satz "produziert fuer internationale Industrieunternehmen"
+  // und der Catena-X-Aufhaenger waren dort schlicht falsch. Der Druck kommt vom
+  // Handel, wie bei Moebeln und Lebensmitteln.
+  if (/freizeitfahrzeug|wohnmobil|wohnwagen|caravan|reisemobil|fahrrad|e-?bike|boot\b|yacht/.test(s)) return "konsumgueter";
   if (/automotive|mobility|fahrzeug|automobil|\bkfz\b/.test(s)) return "automotive";
   if (/maschinen|anlagen|machinery|mechanical|engineering/.test(s)) return "maschinenbau";
   // VOR chemie prüfen: "pharma" stand früher in der chemie-Zeile, und damit
