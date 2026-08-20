@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Taeglicher Erstkontakt + Nachfassen.
+
+  WERKTAGS 09:07 — nicht 09:00: eine krumme Minute verteilt die Last und die
+  Mails landen nicht in derselben Sekunde wie jede andere Automatik.
+  Montag(1) bis Freitag(5); am Wochenende geht nichts raus.
+
+  KEYCHAIN: laeuft als User-Agent in der angemeldeten Sitzung, deshalb ist der
+  Schluesselbund entsperrt und `security find-generic-password` funktioniert.
+  Ist der Rechner aus oder niemand angemeldet, faellt der Lauf aus — das ist
+  gewollt: taeglich.sh bricht ohne SMTP-Passwort in Schritt 1 ab und versendet
+  nichts, statt auf halber Strecke loszulaufen.
+
+  Laden:    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.heycarbo.versand.plist
+  Loesen:   launchctl bootout gui/$(id -u)/com.heycarbo.versand
+  Sofort:   launchctl kickstart -p gui/$(id -u)/com.heycarbo.versand
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.heycarbo.versand</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine/taeglich.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine</string>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>7</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>7</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>7</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>7</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>7</integer></dict>
+  </array>
+
+  <!--
+    NICHT nachholen, wenn der Rechner zur Startzeit aus war.
+
+    Der Standard waere, den verpassten Lauf beim naechsten Aufwachen sofort
+    nachzuziehen. Bei Kaltakquise ist das falsch: die Mail ginge dann um 23 Uhr
+    oder am Samstag raus. Ein ausgefallener Tag ist billiger als ein Versand
+    zur Unzeit.
+  -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine/.revenue-reports/launchd-versand.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine/.revenue-reports/launchd-versand.log</string>
+</dict>
+</plist>

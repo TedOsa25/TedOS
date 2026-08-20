@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Naechtlicher Nachschub fuer den Versandpool.
+
+  22:41 an Werktagabenden (Mo–Fr), also nach dem Versand und lange vor dem
+  naechsten. Damit kann sich der Poolbau nie mit einem laufenden Batch
+  ueberschneiden: taeglich.sh liest den Pool morgens um 09:07.
+
+  VERSCHICKT NICHTS. recherche.sh liest Impressen, traegt Adressen nach und
+  baut die CSV neu — kein SMTP, kein Master-Switch, kein Keychain noetig.
+  Faellt der Lauf aus, bleibt der Pool von gestern stehen.
+
+  Laden:  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.heycarbo.recherche.plist
+  Loesen: launchctl bootout gui/$(id -u)/com.heycarbo.recherche
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.heycarbo.recherche</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine/recherche.sh --limit 200</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine</string>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>41</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>41</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>41</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>41</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>22</integer><key>Minute</key><integer>41</integer></dict>
+  </array>
+
+  <!--
+    Hier ist Nachholen harmlos und sogar erwuenscht — es geht nichts nach
+    aussen, und ein aktueller Pool ist besser als ein alter. Trotzdem false:
+    beim Laden des Agents soll nicht sofort ein 200er-Lauf gegen fremde
+    Webserver starten, nur weil jemand das Skript installiert.
+  -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!-- Niedrige Prioritaet: der Lauf ist nicht eilig und soll nichts verdraengen. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>Nice</key>
+  <integer>5</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine/.revenue-reports/launchd-recherche.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine/.revenue-reports/launchd-recherche.log</string>
+</dict>
+</plist>
