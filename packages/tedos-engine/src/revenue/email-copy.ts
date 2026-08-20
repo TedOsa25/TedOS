@@ -8,6 +8,7 @@
 // facts, no marketing fluff. Each paragraph stays ≤ 3 lines.
 
 import type { Account } from "./accounts.js";
+import { assignFollowUpArm, followUpConfig } from "./experiment.js";
 
 /** Copy tones. A: sehr kurz · B: beratend · C: problem · D: ROI · E: persönlich. */
 export type Variant = "A" | "B" | "C" | "D" | "E";
@@ -331,6 +332,88 @@ export function campaignFromIndustry(industry: string): string {
   if (/kunststoff|chemie|polymer|plastic|metall|stahl|aluminium|guss|gieß|giess|keramik|glas|papier|verpackung|gummi|elastomer|elektronik|elektrotechnik|kabel|komponent|oberfläch|beschicht|textil|werkzeug|feinmechanik/.test(s))
     return "pcf";
   return "scope-3";
+}
+
+/**
+ * TEXTVARIANTEN FÜR DIE NACHFASSMAILS.
+ *
+ * Der Erstkontakt testet seit Batch 95 drei Betreffzeilen; die Nachfassmails
+ * hatten dagegen je EINEN festen Text — und sie sind die Stufe, aus der beide
+ * Conversions kamen (REEL, und Bcomp einen Tag nach der Nachfassmail). Genau
+ * dort wurde also nie etwas gemessen.
+ *
+ * Arm 0 ist jeweils der bisherige Wortlaut. Das ist Absicht: ohne unveränderte
+ * Kontrollgruppe wäre ein Unterschied nicht zuzuordnen, weil das Vorher nur
+ * aus einer Zeit ohne Zuteilung stammt.
+ *
+ * Die Zuteilung ist deterministisch je Lead (siehe `experiment.ts`), damit ein
+ * Empfänger nicht mitten in der Sequenz die Tonlage wechselt.
+ */
+export const FOLLOWUP1_ARME: ((a: Account) => string)[] = [
+  // Arm 0 — Kontrolle, unverändert.
+  (a) =>
+    `Guten Tag, ich wollte kurz nachfassen. Falls ${bedarfsPhrase(a)} bei ${a.company} gerade anstehen, zeige ich Ihnen in 15 Minuten, wie HeyCarbo den Aufwand dafür senkt. Passt das diese Woche?`,
+  // Arm 1 — benennt, WO der Aufwand steckt, statt ihn nur zu behaupten. Wer
+  // das Thema kennt, erkennt sich in der Beobachtung wieder; wer es nicht
+  // kennt, erfährt in einem Satz, worum es überhaupt geht.
+  //
+  // "Der Aufwand für …", nicht "Bei …": `bedarfsPhrase` liefert eine
+  // Nominalphrase im Plural mit schwach dekliniertem Adjektiv ("belastbare
+  // … Daten"). Nach "für" (Akkusativ) stimmt sie unverändert, nach "bei"
+  // (Dativ) müsste es "belastbaren … Daten" heißen. Der erste Entwurf stand
+  // genau so da und wäre falsch an über tausend Empfänger gegangen.
+  (a) =>
+    `Guten Tag, kurz nachgefasst: Der Aufwand für ${bedarfsPhrase(a)} steckt erfahrungsgemäß im Zusammentragen der Daten, nicht in der Rechnung dahinter. Genau da setzt HeyCarbo an. Wäre ein kurzer Blick für ${a.company} interessant — 15 Minuten?`,
+  // Arm 2 — fragt nach der zuständigen Person statt nach einem Termin.
+  //
+  // Der überwiegende Teil des Bestands sind Sammelpostfächer (info@, kontakt@).
+  // Dort sitzt niemand, der über CO₂-Bilanzierung entscheidet — aber jemand,
+  // der weiterleiten kann. Eine Weiterleitung ist die kleinere Bitte als ein
+  // Termin, und sie ist die einzige, die dieses Postfach überhaupt erfüllen kann.
+  //
+  // "liegen", nicht "liegt" — die Phrase ist immer Plural (alle acht Zweige
+  // von `painPhrase` enden auf "-Daten" oder "-Footprints").
+  (a) =>
+    `Guten Tag, ich wollte kurz nachfassen — vermutlich liegen ${bedarfsPhrase(a)} gar nicht auf Ihrem Tisch. Könnten Sie mir sagen, wer das Thema bei ${a.company} verantwortet? Dann wende ich mich direkt an die richtige Stelle und lasse Ihr Postfach in Ruhe.`,
+];
+
+export const FOLLOWUP2_ARME: ((a: Account, ctx: { campaign: string; calendlyUrl: string }) => string)[] = [
+  // Arm 0 — Kontrolle, unverändert.
+  (a, ctx) =>
+    `Guten Tag, ich lasse es dabei — Sie haben Wichtigeres zu tun. Sollte das Thema ${kampagnenName(ctx.campaign)} bei ${a.company} später auf den Tisch kommen, melden Sie sich gern: ${ctx.calendlyUrl}`,
+  // Arm 1 — eine Frage, die sich mit einem Wort beantworten lässt. Kein Link,
+  // keine Terminbitte: die Hürde ist bewusst so niedrig wie möglich, weil auch
+  // ein "nein" den Bestand sauber macht.
+  //
+  // "das Thema" davor — dieselbe Kongruenzfalle wie in Arm 0: `kampagnenName`
+  // liefert teils Plural ("Product Carbon Footprints"), und "Ist Product
+  // Carbon Footprints … ein Thema?" stand im ersten Entwurf wörtlich so da.
+  (a, ctx) =>
+    `Guten Tag, letzte Nachricht von mir. Eine Frage, die sich in einem Wort beantworten lässt: Steht das Thema ${kampagnenName(ctx.campaign)} bei ${a.company} in diesem Jahr an? Wenn nicht, hake ich es ab — das ist völlig in Ordnung.`,
+  // Arm 2 — dieselbe Tür wie Arm 0, aber der Abschied steht vorn. Wer nicht
+  // antwortet, soll wenigstens einen guten letzten Eindruck behalten.
+  (a, ctx) =>
+    `Guten Tag, ich höre hier auf — zwei Mails sind genug, wenn das Thema gerade nicht dran ist. Falls das Thema ${kampagnenName(ctx.campaign)} bei ${a.company} später aufschlägt: Der Kalender steht offen, ${ctx.calendlyUrl}. Alles Gute bis dahin.`,
+];
+
+/**
+ * Nachfasstext plus zugeteilter Arm.
+ *
+ * Der Arm wird mitgegeben, weil `followup-run.ts` ihn am Lead festhalten muss —
+ * sonst laesst sich hinterher nicht sagen, welcher Text zu welcher Antwort
+ * gehoerte, und der Test waere wieder nur eine kompliziertere Art, dasselbe zu
+ * tun. Ohne gesetzte Umgebungsvariablen sind alle Arme aktiv.
+ */
+export function followUp1Fuer(a: Account): { arm: number; text: string } {
+  const cfg = followUpConfig(FOLLOWUP1_ARME.length, FOLLOWUP2_ARME.length);
+  const arm = assignFollowUpArm(a.id, 1, cfg.stufe1);
+  return { arm, text: (FOLLOWUP1_ARME[arm] ?? FOLLOWUP1_ARME[0]!)(a) };
+}
+
+export function followUp2Fuer(a: Account, ctx: { campaign: string; calendlyUrl: string }): { arm: number; text: string } {
+  const cfg = followUpConfig(FOLLOWUP1_ARME.length, FOLLOWUP2_ARME.length);
+  const arm = assignFollowUpArm(a.id, 2, cfg.stufe2);
+  return { arm, text: (FOLLOWUP2_ARME[arm] ?? FOLLOWUP2_ARME[0]!)(a, ctx) };
 }
 
 /** Build the four personalized paragraphs for one account in the requested tone (HeyCarbo). */

@@ -8,7 +8,10 @@ import { InMemoryStorage } from "../storage.js";
 import { DistributionQueue } from "../distribution-queue.js";
 import { parseLeads, normalize, prioritize, type Account } from "./accounts.js";
 import { selectCampaign, qualityCheck, buildOpportunity, buildVariants, RevenueEngine } from "./revenue-engine.js";
-import { germanizePain, researchIntro } from "./email-copy.js";
+import {
+  germanizePain, researchIntro, kampagnenName,
+  FOLLOWUP1_ARME, FOLLOWUP2_ARME, followUp1Fuer, followUp2Fuer,
+} from "./email-copy.js";
 
 const clock = (): string => "2026-06-30T09:00:00.000Z";
 
@@ -140,6 +143,71 @@ describe("revenue: content generation + quality gates", () => {
       researchIntro(elektronik),
       "Bei unserer Recherche ist uns aufgefallen, dass Elektro AG für internationale Industrieunternehmen produziert. Genau diese Kunden verlangen zunehmend standardisierte Product Carbon Footprints.",
     );
+  });
+
+  /**
+   * Die Nachfass-Arme laufen ueber DIESELBEN Bausteine wie der Erstkontakt, und
+   * beide haben eine Kongruenzfalle:
+   *
+   *   `bedarfsPhrase`  → immer Plural, schwach dekliniert ("belastbare … Daten").
+   *                      Nach "für" (Akkusativ) korrekt, nach "bei" (Dativ) nicht.
+   *   `kampagnenName`  → teils Plural ("Product Carbon Footprints"), muss darum
+   *                      immer hinter "das Thema" stehen.
+   *
+   * Beide Fehler standen im ersten Entwurf der neuen Arme wörtlich im Text
+   * ("Bei belastbare … Daten steckt", "Ist Product Carbon Footprints … ein
+   * Thema?"). Der Test rendert deshalb JEDEN Arm gegen JEDEN Branchen-Bucket.
+   */
+  test("Nachfass-Arme: keine Numerus- oder Kasusfehler in irgendeiner Branche", () => {
+    const buckets = [
+      { segment: "Maschinenbau" }, { segment: "Chemie" }, { segment: "Logistik" },
+      { segment: "Elektronik" }, { segment: "Möbel" }, { segment: "Werkzeugbau" },
+      { segment: "Automotive / Mobility", catena_x_relevance: "high" },
+      { segment: "Pharma" }, { segment: "Kunststoff" },
+    ];
+    const ctxs = ["pcf", "scope-3", "catena-x", "csrd", "supplier-management", "esg"];
+    for (const [i, b] of buckets.entries()) {
+      const a = normalize({ id: `f${i}`, name: "Muster GmbH", ...b } as never, i);
+      for (const f of FOLLOWUP1_ARME) {
+        const t = f(a);
+        // Dativ-Falle: die Phrase darf nie direkt hinter einer Dativpräposition stehen.
+        assert.ok(!/\b(bei|mit|von|zu|aus|nach) (belastbare|transparente|standardisierte|produktbezogene|konsolidierte|ISO-14067-konforme)\b/.test(t), `Kasusfehler: ${t}`);
+        // Numerus-Falle: Singularverb vor der Pluralphrase.
+        assert.ok(!/\bliegt (belastbare|transparente|standardisierte|produktbezogene|konsolidierte)/.test(t), `Numerusfehler: ${t}`);
+        assert.ok(t.includes("Muster GmbH"), "der Firmenname muss vorkommen");
+      }
+      for (const c of ctxs) {
+        for (const f of FOLLOWUP2_ARME) {
+          const t = f(a, { campaign: c, calendlyUrl: "https://example.test/t" });
+          const name = kampagnenName(c);
+          // kampagnenName darf nur hinter "das Thema" stehen — sonst kippt die
+          // Kongruenz, sobald das Label Plural ist.
+          assert.ok(t.includes(`das Thema ${name}`), `"${name}" ohne "das Thema": ${t}`);
+        }
+      }
+    }
+  });
+
+  test("Nachfass-Arme werden deterministisch und gleichmäßig zugeteilt", () => {
+    const a = normalize({ id: "stabil-1", name: "Muster GmbH", segment: "Maschinenbau" } as never, 0);
+    // Derselbe Lead bekommt über Läufe hinweg denselben Arm — sonst wechselte
+    // ein Empfänger mitten in der Sequenz die Tonlage.
+    assert.equal(followUp1Fuer(a).arm, followUp1Fuer(a).arm);
+    assert.equal(followUp1Fuer(a).text, followUp1Fuer(a).text);
+
+    // Stufe 1 und Stufe 2 haben getrennte Salts: über viele Leads dürfen die
+    // Arme nicht paarweise gekoppelt sein.
+    let gekoppelt = 0;
+    const zaehler1 = [0, 0, 0], zaehler2 = [0, 0, 0];
+    for (let i = 0; i < 600; i++) {
+      const l = normalize({ id: `lead-${i}`, name: "X GmbH", segment: "Metall" } as never, i);
+      const a1 = followUp1Fuer(l).arm;
+      const a2 = followUp2Fuer(l, { campaign: "pcf", calendlyUrl: "u" }).arm;
+      zaehler1[a1]! += 1; zaehler2[a2]! += 1;
+      if (a1 === a2) gekoppelt += 1;
+    }
+    for (const n of [...zaehler1, ...zaehler2]) assert.ok(n > 120 && n < 280, `unausgewogen: ${n}/600`);
+    assert.ok(gekoppelt > 120 && gekoppelt < 280, `Stufen sind gekoppelt: ${gekoppelt}/600 identisch`);
   });
 
   test("quality gates flag salesy + spam copy", () => {

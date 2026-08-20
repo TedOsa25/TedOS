@@ -73,6 +73,42 @@ export function assignExperiment(
   };
 }
 
+/**
+ * Arme der Nachfassmails — eigene Achse, eigener Salt.
+ *
+ * Bewusst NICHT an die Tonalität des Erstkontakts gekoppelt: sonst bekäme jeder
+ * Lead mit Tonalität E immer denselben Nachfasstext, und die beiden Wirkungen
+ * wären nicht mehr zu trennen. Stufe 1 und Stufe 2 haben zusätzlich getrennte
+ * Salts, damit sich die Arme nicht paarweise mitziehen.
+ *
+ *   REVENUE_TEST_FOLLOWUP1=0,1,2   (Standard: alle)
+ *   REVENUE_TEST_FOLLOWUP2=0,1,2
+ *
+ * Auf einen Wert gesetzt friert die Stufe ein — so lässt sich ein Gewinner
+ * festschreiben, ohne die andere Stufe anzuhalten.
+ */
+function armeAus(roh: string | undefined, anzahl: number): number[] {
+  const gewaehlt = (roh ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+    .map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < anzahl);
+  return gewaehlt.length ? gewaehlt : Array.from({ length: anzahl }, (_, i) => i);
+}
+
+export function followUpConfig(
+  anzahl1: number,
+  anzahl2: number,
+  env: NodeJS.ProcessEnv = process.env,
+): { stufe1: number[]; stufe2: number[] } {
+  return {
+    stufe1: armeAus(env.REVENUE_TEST_FOLLOWUP1, anzahl1),
+    stufe2: armeAus(env.REVENUE_TEST_FOLLOWUP2, anzahl2),
+  };
+}
+
+/** Welcher Nachfasstext dieser Lead auf dieser Stufe bekommt. */
+export function assignFollowUpArm(leadId: string, stage: 1 | 2, arme: number[]): number {
+  return assignArm(leadId, arme, `followup${stage}`);
+}
+
 /** Einzeiler für Batch-Report und Preflight. */
 export function describeExperiment(cfg: ExperimentConfig = experimentConfig()): string {
   const arme = cfg.variants.length * cfg.subjects.length;

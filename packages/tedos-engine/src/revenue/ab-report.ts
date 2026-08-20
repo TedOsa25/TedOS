@@ -71,6 +71,30 @@ function main(): void {
   tabelle("Tonalität", zaehle(records, (r) => r.variant ?? "?"));
   if (mitIndex.length) tabelle("Betreffzeile", zaehle(mitIndex, (r) => `Betreff ${r.subjectIndex}`));
   if (mitIndex.length) tabelle("Kombination", zaehle(mitIndex, (r) => `${r.variant}/${r.subjectIndex}`));
+
+  /**
+   * Die Nachfassmails sind die Stufe, aus der beide Conversions kamen — und bis
+   * 20.08.2026 gab es dort je EINEN Text, also nichts zu vergleichen. Seither
+   * laufen drei Arme je Stufe. Wer vorher angeschrieben wurde, trägt keinen
+   * Arm; diese Datensätze bleiben hier bewusst außen vor, statt als vierte
+   * Gruppe "?" die Auswertung zu verwässern.
+   */
+  for (const stufe of [1, 2] as const) {
+    const feld = stufe === 1 ? "followup1_arm" : "followup2_arm";
+    const mit = records.filter((r) => typeof r[feld] === "number");
+    const gesendet = records.filter((r) => r[stufe === 1 ? "followup1_at" : "followup2_at"]);
+    if (!gesendet.length) continue;
+    if (!mit.length) {
+      console.log(`\n── Nachfassmail ${stufe} ──`);
+      console.log(`  ${gesendet.length} versendet, aber keine trägt einen Arm — alle gingen vor`);
+      console.log(`  Einführung der Zuteilung raus. Es gibt nichts zu vergleichen.`);
+      continue;
+    }
+    tabelle(`Nachfassmail ${stufe} · Textarm`, zaehle(mit, (r) => `Arm ${r[feld]}`));
+    if (mit.length < gesendet.length) {
+      console.log(`  Hinweis: ${gesendet.length - mit.length} ältere Nachfassmails ohne Arm sind nicht enthalten.`);
+    }
+  }
   console.log("");
 }
 

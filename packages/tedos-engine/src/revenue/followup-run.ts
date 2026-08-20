@@ -26,6 +26,8 @@ import { loadAccounts, type Account } from "./accounts.js";
 import { activeBrandProfile } from "./brand-profile.js";
 import { selectedProviderName, getProvider, isSendArmed, dispatch, type OutboundEmail } from "./sending.js";
 import { buildOpportunity } from "./revenue-engine.js";
+import { followUp1Fuer, followUp2Fuer } from "./email-copy.js";
+import { EMAIL_ASSETS } from "./email-template.js";
 import {
   loadLeadStatus, selectFollowUps, followUpGate, listUnsubscribeHeaders,
   type LeadRecord,
@@ -41,6 +43,9 @@ const MIN1 = Number(process.env.REVENUE_FOLLOWUP_MIN1 ?? 4);
 const MIN2 = Number(process.env.REVENUE_FOLLOWUP_MIN2 ?? 5);
 /** Absurditätsgrenze in Werktagen. Qualität filtert `eligible`, nicht das Alter. */
 const MAX = Number(process.env.REVENUE_FOLLOWUP_MAX ?? 60);
+/** Anteil des Laufs, der für die zweite Nachfassmail reserviert ist. Siehe
+ *  `selectFollowUps` — ohne Reservierung geht Stufe 2 nie raus. */
+const SHARE2 = Number(process.env.REVENUE_FOLLOWUP_STAGE2_SHARE ?? 0.5);
 const SENDER = {
   email: process.env.REVENUE_FROM_EMAIL ?? activeBrandProfile().identity.senderEmail,
   name: process.env.REVENUE_FROM_NAME ?? activeBrandProfile().identity.senderName,
@@ -138,7 +143,7 @@ async function main(): Promise<void> {
     return true;
   };
 
-  const sel = selectFollowUps(accounts, statusMap, { limit: LIMIT, now, minWorkdays1: MIN1, minWorkdays2: MIN2, maxWorkdays: MAX, eligible });
+  const sel = selectFollowUps(accounts, statusMap, { limit: LIMIT, now, minWorkdays1: MIN1, minWorkdays2: MIN2, maxWorkdays: MAX, stage2Share: SHARE2, eligible });
 
   console.log(`\n── Auswahl ──`);
   console.log(`  Kontaktiert (Status "sent") : ${sel.sent}`);
@@ -148,7 +153,8 @@ async function main(): Promise<void> {
   console.log(`  Bekäme heute keinen Erstkontakt: ${sel.ungeeignet}`);
   console.log(`  Sequenz beendet (2 gesendet): ${sel.exhausted}`);
   for (const [k, v] of Object.entries(sel.excluded)) console.log(`  Ausgeschlossen (${k}): ${v}`);
-  console.log(`  → in diesem Lauf            : ${sel.batch.length}`);
+  const n2 = sel.batch.filter((c) => c.stage === 2).length;
+  console.log(`  → in diesem Lauf            : ${sel.batch.length}  (FU1 ${sel.batch.length - n2} · FU2 ${n2} · Stufe-2-Quote ${Math.round(SHARE2 * 100)} %)`);
   if (!sel.batch.length) { console.log("\nNichts zu tun."); return; }
 
   for (const c of sel.batch) {
@@ -207,7 +213,15 @@ async function main(): Promise<void> {
   for (const c of batch) {
     const a = c.account;
     const opp = buildOpportunity(a, () => now, "E");
-    const body = c.stage === 1 ? opp.followUp1 : opp.followUp2;
+    // Denselben Arm noch einmal bestimmen, statt ihn aus dem Text zu raten.
+    // Die Zuteilung ist deterministisch, `opp.followUp*` stammt aus genau
+    // dieser Funktion — Text und festgehaltener Arm koennen nicht auseinander-
+    // laufen. Ohne die Nummer waere hinterher nicht zuzuordnen, welcher Text
+    // zu welcher Antwort gehoerte.
+    const gewaehlt = c.stage === 1
+      ? followUp1Fuer(a)
+      : followUp2Fuer(a, { campaign: opp.campaign, calendlyUrl: EMAIL_ASSETS.calendlyUrl });
+    const body = gewaehlt.text;
     const email: OutboundEmail = {
       to: a.email as string,
       ...(a.company ? { toName: a.company } : {}),
@@ -225,7 +239,8 @@ async function main(): Promise<void> {
     const r = await dispatch(email, provider);
     const rec: LeadRecord = { ...(statusMap[a.id] as LeadRecord) };
     if (r.status === "sent") {
-      if (c.stage === 1) rec.followup1_at = now; else rec.followup2_at = now;
+      if (c.stage === 1) { rec.followup1_at = now; rec.followup1_arm = gewaehlt.arm; }
+      else { rec.followup2_at = now; rec.followup2_arm = gewaehlt.arm; }
     } else if (r.detail) {
       rec.error = r.detail;
     }

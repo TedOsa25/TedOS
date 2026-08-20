@@ -104,6 +104,59 @@ describe("selectFollowUps: wer KEINE Nachfassmail bekommt", () => {
     assert.equal(eng.tooLate, 1);
   });
 
+  /**
+   * Der Befund vom 20.08.2026: FU2 stand bei 0 gesendet — nicht, weil niemand
+   * fällig war, sondern weil die Sortierung nach Alter die zweite Stufe
+   * strukturell nach hinten schiebt. Ihre Uhr läuft ab `followup1_at` und
+   * beginnt darum immer bei ~5 Werktagen, während der FU1-Rückstand bei 33 lag.
+   * 1.530 gegen 15 — Stufe 2 wäre nie an die Reihe gekommen.
+   */
+  test("die zweite Nachfassmail wird nicht vom FU1-Rückstand verdrängt", () => {
+    const alt = "2026-06-30T09:00:00.000Z"; // ~30 WT — der Kaltbestand
+    const records: Record<string, LeadRecord> = {
+      // vier alte FU1-Kandidaten …
+      a: { status: "sent", sent_at: alt },
+      b: { status: "sent", sent_at: alt },
+      c: { status: "sent", sent_at: alt },
+      d: { status: "sent", sent_at: alt },
+      // … gegen zwei frisch fällige FU2. Nach Alter verlieren sie immer.
+      e: { status: "sent", sent_at: alt, followup1_at: VOR_6_WT },
+      f: { status: "sent", sent_at: alt, followup1_at: VOR_6_WT },
+    };
+    const sel = selectFollowUps(accounts, store(records).load("revenue-lead-status")!, { limit: 4, now: NOW });
+    const stufen = sel.batch.map((x) => x.stage);
+    assert.equal(stufen.filter((s) => s === 2).length, 2, "beide fälligen FU2 müssen mitfahren");
+    assert.equal(stufen.filter((s) => s === 1).length, 2, "die Hälfte bleibt beim FU1-Rückstand");
+  });
+
+  test("ungenutzte Stufe-2-Plätze verfallen nicht", () => {
+    const alt = "2026-06-30T09:00:00.000Z";
+    const records: Record<string, LeadRecord> = {
+      a: { status: "sent", sent_at: alt },
+      b: { status: "sent", sent_at: alt },
+      c: { status: "sent", sent_at: alt },
+      d: { status: "sent", sent_at: alt },
+    };
+    const sel = selectFollowUps(accounts, store(records).load("revenue-lead-status")!, { limit: 4, now: NOW });
+    assert.equal(sel.batch.length, 4, "ohne fällige FU2 füllt Stufe 1 den ganzen Lauf");
+    assert.ok(sel.batch.every((x) => x.stage === 1));
+  });
+
+  test("die Stufe-2-Quote ist einstellbar", () => {
+    const alt = "2026-06-30T09:00:00.000Z";
+    const records: Record<string, LeadRecord> = {
+      a: { status: "sent", sent_at: alt },
+      b: { status: "sent", sent_at: alt },
+      c: { status: "sent", sent_at: alt, followup1_at: VOR_6_WT },
+      d: { status: "sent", sent_at: alt, followup1_at: VOR_6_WT },
+    };
+    const map: Record<string, LeadRecord> = store(records).load("revenue-lead-status")!;
+    const aus = selectFollowUps(accounts, map, { limit: 2, now: NOW, stage2Share: 0 });
+    assert.ok(aus.batch.every((x) => x.stage === 1), "Quote 0 verhält sich wie vorher: nur der Rückstand");
+    const nur2 = selectFollowUps(accounts, map, { limit: 2, now: NOW, stage2Share: 1 });
+    assert.ok(nur2.batch.every((x) => x.stage === 2), "Quote 1 reserviert den ganzen Lauf für Stufe 2");
+  });
+
   // Der eigentliche Filter ist die Qualität, nicht das Alter. Die Auswahl vom
   // 18.08. enthielt ein Fraunhofer-Institut, zwei US-Konzerne und ir@conti.de —
   // nicht weil sie alt war, sondern weil sie aus der Zeit vor den Filtern

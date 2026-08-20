@@ -85,6 +85,9 @@ export interface LeadRecord {
   /** Zeitpunkte der Nachfassmails (max. zwei). */
   followup1_at?: string;
   followup2_at?: string;
+  /** Welcher Textarm je Nachfassstufe versendet wurde (A/B-Auswertung). */
+  followup1_arm?: number;
+  followup2_arm?: number;
 }
 
 /** Reply phrases that trigger an automatic opt-out (case-insensitive, whole word). */
@@ -709,7 +712,7 @@ export interface FollowUpSelection {
 export function selectFollowUps(
   accounts: Account[],
   statusMap: Record<string, LeadRecord>,
-  opts: { limit: number; now: string; minWorkdays1?: number; minWorkdays2?: number; maxWorkdays?: number; eligible?: (a: Account) => boolean },
+  opts: { limit: number; now: string; minWorkdays1?: number; minWorkdays2?: number; maxWorkdays?: number; stage2Share?: number; eligible?: (a: Account) => boolean },
 ): FollowUpSelection {
   const min1 = opts.minWorkdays1 ?? 4;
   const min2 = opts.minWorkdays2 ?? 5;
@@ -773,7 +776,44 @@ export function selectFollowUps(
   // längsten wartet. Ohne die Obergrenze oben zog diese Sortierung die
   // ungeeignetsten Kontakte nach vorn.
   cands.sort((x, y) => y.workdays - x.workdays);
-  return { batch: cands.slice(0, opts.limit), sent, eligible: cands.length, tooEarly, tooLate, ungeeignet, exhausted, excluded };
+
+  /**
+   * Eigene Quote für die zweite Nachfassmail — sonst geht sie NIE raus.
+   *
+   * Nach Alter allein zu sortieren klingt fair und ist es nicht: die Uhr für
+   * Stufe 1 läuft ab `sent_at`, die für Stufe 2 erst ab `followup1_at`. Ein
+   * FU2-Kandidat startet also zwangsläufig bei 5 Werktagen, während der
+   * FU1-Rückstand bei einem Median von 33 liegt. Gemessen am 20.08.2026:
+   * 1.530 FU1-Kandidaten gegen 15 fällige FU2 — die zweite Stufe stand seit
+   * Beginn der Kampagne auf 0 gesendet und wäre dort auch geblieben.
+   *
+   * Das trifft die falsche Stufe: beide Conversions kamen aus dem Nachfassen,
+   * und ein Lead, der Stufe 1 bereits gesehen hat, ist wärmer als der 1.530.
+   * aus dem Kaltbestand.
+   *
+   * Die Quote ist bewusst eine Hälfte und kein Vorrang. Vorrang für Stufe 2
+   * würde ab morgen kippen: an den letzten Tagen gingen je 20 FU1 raus, fünf
+   * Werktage später wären das 20 fällige FU2 — der FU1-Rückstand käme nie mehr
+   * an die Reihe. Mit der Hälfte pendelt sich der Lauf von selbst bei 10/10
+   * ein, weil jedes gesendete FU1 fünf Werktage später genau ein FU2 erzeugt.
+   *
+   * Ungenutzte Plätze verfallen nicht: fehlen fällige FU2, füllt Stufe 1 auf
+   * (heute also 15 + 5) und umgekehrt.
+   */
+  const anteil2 = Number(opts.stage2Share ?? 0.5);
+  const platz2 = Math.round(opts.limit * Math.min(1, Math.max(0, anteil2)));
+  const s2 = cands.filter((c) => c.stage === 2);
+  const s1 = cands.filter((c) => c.stage === 1);
+  const nimm2 = s2.slice(0, platz2);
+  const nimm1 = s1.slice(0, opts.limit - nimm2.length);
+  // Rest auffüllen, falls eine Stufe ihre Plätze nicht ausschöpft.
+  const batch = [...nimm2, ...nimm1];
+  if (batch.length < opts.limit) batch.push(...s2.slice(nimm2.length, nimm2.length + (opts.limit - batch.length)));
+  // Innerhalb des Laufs wieder nach Alter — die Reihenfolge der Zustellung
+  // soll nicht verraten, nach welcher Regel ausgewählt wurde.
+  batch.sort((x, y) => y.workdays - x.workdays);
+
+  return { batch, sent, eligible: cands.length, tooEarly, tooLate, ungeeignet, exhausted, excluded };
 }
 
 const INBOX_SCAN_KEY = "revenue-inbox-scan";

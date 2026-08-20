@@ -7,8 +7,12 @@ import type { Account } from "../accounts.js";
 import type { BrandProfile } from "../brand-profile.js";
 import {
   HEYCARBO_VALUE, HEYCARBO_CLOSING, needLeadHeycarbo, selectCampaignHeycarbo, researchIntro, germanizePain,
-  bedarfsPhrase, kampagnenName,
+  followUp1Fuer, followUp2Fuer,
 } from "../email-copy.js";
+
+/** Nur der Text — den zugeteilten Arm haelt `followup-run.ts` selbst fest. */
+const waehleFollowUp1 = (a: Account): string => followUp1Fuer(a).text;
+const waehleFollowUp2 = (a: Account, ctx: { campaign: string; calendlyUrl: string }): string => followUp2Fuer(a, ctx).text;
 
 const WEBSITE = "https://heycarbo.com";
 
@@ -74,16 +78,19 @@ export const HEYCARBO_PROFILE: BrandProfile = {
     // Ableitung wie der Erstkontakt (Branche · OEM-Druck · CSRD-Signal), damit
     // Erstmail und Nachfassmail dieselbe Sprache sprechen — ein Werkzeugbauer
     // und eine Molkerei bekamen vorher denselben Text.
-    followUp1: (a: Account) =>
-      `Guten Tag, ich wollte kurz nachfassen. Falls ${bedarfsPhrase(a)} bei ${a.company} gerade anstehen, zeige ich Ihnen in 15 Minuten, wie HeyCarbo den Aufwand dafür senkt. Passt das diese Woche?`,
+    //
+    // Seit 20.08.2026 drei Arme je Stufe statt eines festen Textes; Arm 0 ist
+    // jeweils der bisherige Wortlaut. Die Zuteilung haengt am Lead, nicht am
+    // Zufall — derselbe Empfaenger bekommt ueber die ganze Sequenz denselben
+    // Arm. Texte und Begruendung stehen in email-copy.ts.
+    followUp1: (a: Account) => waehleFollowUp1(a),
     // ctx.campaign ist ein technisches Kürzel aus dem Store ("scope-3",
     // "catena-x"). Ungefiltert ergab das "Wenn scope-3-Themen für Koinor später
     // relevant werden" — maschinell und kleingeschrieben mitten im Satz.
-    followUp2: (a: Account, ctx: { campaign: string; calendlyUrl: string }) =>
-      // "das Thema" davor, weil die Labels teils Plural sind: "Sollte Product Carbon
-      // Footprints ... " war schlicht falsches Deutsch. Mit "das Thema" stimmt die
-      // Kongruenz unabhaengig davon, was kampagnenName liefert.
-      `Guten Tag, ich lasse es dabei — Sie haben Wichtigeres zu tun. Sollte das Thema ${kampagnenName(ctx.campaign)} bei ${a.company} später auf den Tisch kommen, melden Sie sich gern: ${ctx.calendlyUrl}`,
+    // "das Thema" davor, weil die Labels teils Plural sind: "Sollte Product Carbon
+    // Footprints ... " war schlicht falsches Deutsch. Mit "das Thema" stimmt die
+    // Kongruenz unabhaengig davon, was kampagnenName liefert.
+    followUp2: (a: Account, ctx: { campaign: string; calendlyUrl: string }) => waehleFollowUp2(a, ctx),
     summaryLead: "Warum HeyCarbo passt",
     painFallback: (ctx: { campaign: string }) => `${ctx.campaign}-Anforderungen der Kunden.`,
     // MUSS zur tatsächlichen Testdauer passen: Migration 039 hat sie von 14 auf
