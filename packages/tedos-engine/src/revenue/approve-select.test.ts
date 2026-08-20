@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { InMemoryStorage } from "./../storage.js";
 import { normalize, type Account } from "./accounts.js";
 import { loadLeadStatus, approveLeads } from "./batch-send.js";
-import { selectForApproval, domainMatches, isPersonalized } from "./approve-select.js";
+import { selectForApproval, domainMatches, isPersonalized, istZustellbar } from "./approve-select.js";
 
 function acct(id: string, company: string, email: string, website: string | undefined, i: number): Account {
   return normalize({ id, name: company, industry: "Maschinenbau", email, ...(website ? { website } : {}), prio: "A", score: 65 }, i);
@@ -39,6 +39,38 @@ describe("isPersonalized", () => {
   });
 });
 
+describe("istZustellbar", () => {
+  test("die angeklebte TLD aus dem Impressum wird erkannt", () => {
+    // Alle vier lagen am 20.08.2026 im CRM, zwei als "belegt" markiert.
+    assert.equal(istZustellbar("vertrieb@kroll.deinternet"), false);
+    assert.equal(istZustellbar("info@tr-plast.deinternet"), false);
+    assert.equal(istZustellbar("media@kuehne-nagel.combusiness"), false);
+    assert.equal(istZustellbar("communications.supplychain@havi.comauthorized"), false);
+  });
+
+  test("lange, aber echte TLDs bleiben gültig", () => {
+    assert.equal(istZustellbar("info@makler.immobilien"), true);
+    assert.equal(istZustellbar("info@studio.photography"), true);
+    assert.equal(istZustellbar("info@laden.berlin"), true);
+    assert.equal(istZustellbar("info@firma.hamburg"), true);
+  });
+
+  test("gewöhnliche Adressen bleiben unangetastet", () => {
+    assert.equal(istZustellbar("info@lewa.de"), true);
+    assert.equal(istZustellbar("office@remus.at"), true);
+    assert.equal(istZustellbar("info@ch.kasto.com"), true);
+  });
+
+  test("kaputte Grundformen fallen durch", () => {
+    assert.equal(istZustellbar("keinklammeraffe.de"), false);
+    assert.equal(istZustellbar("zwei@@at.de"), false);
+    assert.equal(istZustellbar("info@ohnepunkt"), false);
+    assert.equal(istZustellbar("info@firma..de"), false);
+    assert.equal(istZustellbar("mit leer@firma.de"), false);
+    assert.equal(istZustellbar("@firma.de"), false);
+  });
+});
+
 describe("selectForApproval", () => {
   test("excludes foreign-domain, missing-address, duplicate and already-sent leads", () => {
     const accounts = [
@@ -64,6 +96,40 @@ describe("selectForApproval", () => {
     const sel = selectForApproval(accounts, loadLeadStatus(storage), 10);
     assert.deepEqual(sel.pick.map((a) => a.id), ["c"]);
     assert.equal(sel.rejected.status, 1);
+  });
+
+  /**
+   * Die Obergrenze hing bis 20.08.2026 nur im Nachfass-Pfad. Beim Erstkontakt
+   * lief ein Konzern ungebremst durch — getragen hat die Regel stattdessen der
+   * Versandpool, indem er eine belegte Mitarbeiterzahl verlangte. Das war die
+   * Regel an der falschen Stelle: es kostete 43 von 75 verbleibenden Leads und
+   * hätte REEL ausgeschlossen, die einzige gebuchte Demo, die gar keine Zahl
+   * hinterlegt hat.
+   */
+  test("über 2.000 Mitarbeitende bekommt keinen Erstkontakt", () => {
+    const gross = normalize({ id: "gross", name: "Riesen AG", industry: "Maschinenbau", email: "info@riesen-ag.de", website: "riesen-ag.de", employees: 5000, prio: "A", score: 90 } as never, 0);
+    const klein = normalize({ id: "klein", name: "Klein GmbH", industry: "Maschinenbau", email: "info@klein-gmbh.de", website: "klein-gmbh.de", employees: 51, prio: "A", score: 65 } as never, 1);
+    const sel = selectForApproval([gross, klein], loadLeadStatus(new InMemoryStorage()), 10);
+    assert.deepEqual(sel.pick.map((a) => a.id), ["klein"]);
+    assert.equal(sel.rejected.zuGross, 1);
+  });
+
+  test("ohne hinterlegte Größe greift die Konzern-Domainliste", () => {
+    // Schaeffler steht im CRM ohne Mitarbeiterzahl — genau der Fall, für den
+    // grossunternehmen.ts existiert. Ohne diesen Zweig fuhr er beim
+    // Erstkontakt mit.
+    const konzern = normalize({ id: "k", name: "Schaeffler", industry: "Maschinenbau", email: "info@schaeffler.com", website: "schaeffler.com", prio: "A", score: 90 } as never, 0);
+    const sel = selectForApproval([konzern], loadLeadStatus(new InMemoryStorage()), 10);
+    assert.equal(sel.pick.length, 0);
+    assert.equal(sel.rejected.zuGross, 1);
+  });
+
+  test("keine Untergrenze — Bcomp hat 51 Mitarbeitende und ist die beste Anfrage", () => {
+    const winzig = normalize({ id: "w", name: "Winzig GmbH", industry: "Maschinenbau", email: "info@winzig-gmbh.de", website: "winzig-gmbh.de", employees: 12, prio: "A", score: 65 } as never, 0);
+    const ohneZahl = normalize({ id: "o", name: "Ohnezahl GmbH", industry: "Maschinenbau", email: "info@ohnezahl-gmbh.de", website: "ohnezahl-gmbh.de", prio: "A", score: 65 } as never, 1);
+    const sel = selectForApproval([winzig, ohneZahl], loadLeadStatus(new InMemoryStorage()), 10);
+    assert.equal(sel.pick.length, 2, "weder eine kleine noch eine ungemessene Firma wird ausgeschlossen");
+    assert.equal(sel.rejected.zuGross, 0);
   });
 
   test("prefers personalized addresses within the same fit tier", () => {

@@ -12,6 +12,10 @@
 
 import { type Account, prioritize } from "./accounts.js";
 import type { LeadRecord } from "./batch-send.js";
+import { istGrosskonzern } from "./grossunternehmen.js";
+
+/** Obergrenze wie im Nachfassen: bei dieser Groesse entscheidet niemand ueber info@. */
+const MAX_MITARBEITENDE = Number(process.env.REVENUE_MAX_MITARBEITENDE ?? 2000);
 
 /**
  * Statuses that make a lead ineligible for a fresh approval.
@@ -105,10 +109,51 @@ export function isPersonalized(email: string): boolean {
   return alpha.length >= 2 && alpha.some((t) => t.length >= 2);
 }
 
+/**
+ * Grundform einer zustellbaren Adresse — genau ein "@", eine Domain mit Punkt,
+ * und eine TLD, die eine sein kann.
+ *
+ * WARUM DIE TLD GEPRUEFT WIRD. Am 20.08.2026 stand `vertrieb@kroll.deinternet`
+ * in einer Batch-Auswahl. Die Adresse kam aus einem Impressum, in dem hinter
+ * der Adresse ohne Trennzeichen das naechste Wort stand ("…kroll.de" +
+ * "Internet"). `domainMatches` liess sie durch, weil der Kern "kroll" stimmt —
+ * der Abgleich prueft die ZUGEHOERIGKEIT, nicht die Existenz. Vier solche
+ * Adressen lagen im Bestand, zwei davon als "belegt" markiert.
+ *
+ * Die Ursache ist im Extraktor behoben (`tldSuffixWeg` in enrich-emails.mjs).
+ * Diese Pruefung ist das zweite Netz: sie greift auch fuer Adressen, die auf
+ * anderem Weg ins CRM gekommen sind, und kostet nichts.
+ *
+ * ERKANNT WIRD DIE FEHLERSIGNATUR, NICHT EINE TLD-LISTE. Eine Positivliste
+ * waere bei der naechsten neuen TLD veraltet, und "deinternet" besteht jede
+ * reine Formpruefung — es sind schlicht Buchstaben. Der Fehler hat aber eine
+ * eigene Form: eine GUELTIGE TLD mit angehaengtem Wort. Genau danach wird
+ * gesucht — laenger als sechs Zeichen UND beginnt mit einer bekannten TLD.
+ *
+ * "immobilien", "photography", "berlin", "hamburg" bleiben damit gueltig; sie
+ * beginnen mit keiner TLD. Bewusst in Kauf genommen: ".network" beginnt mit
+ * "net" und wird abgelehnt. Fuer DACH-Industrie ist das kein realer Fall, und
+ * abgelehnt heisst hier gemeldet, nicht still verworfen.
+ */
+const BEKANNTE_TLD = ["com", "net", "org", "info", "biz", "eu", "de", "at", "ch", "li", "lu", "nl", "fr", "it", "es", "pl", "cz", "dk", "se", "uk", "io"];
+
+export function istZustellbar(email: string): boolean {
+  const teile = email.split("@");
+  if (teile.length !== 2) return false;
+  const [lokal, domain] = teile as [string, string];
+  if (!lokal || /\s/.test(email)) return false;
+  const labels = domain.split(".");
+  if (labels.length < 2 || labels.some((l) => !l)) return false;
+  const tld = (labels[labels.length - 1] as string).toLowerCase();
+  if (!/^[a-z]{2,24}$/.test(tld)) return false;
+  if (tld.length > 6 && BEKANNTE_TLD.some((t) => tld.startsWith(t))) return false;
+  return true;
+}
+
 export interface ApprovalSelection {
   pick: Account[];
   eligible: number;
-  rejected: { status: number; noEmail: number; dataQuality: number; duplicate: number; domainMismatch: number };
+  rejected: { status: number; noEmail: number; dataQuality: number; duplicate: number; domainMismatch: number; zuGross: number };
   personalizedInPick: number;
 }
 
@@ -120,8 +165,10 @@ export function selectForApproval(
   accounts: Account[],
   statusMap: Record<string, LeadRecord>,
   limit: number,
+  /** Vorrangige Reihenfolge (IDs aus dem Versandpool). Leer = wie bisher nach fitScore. */
+  order?: string[],
 ): ApprovalSelection {
-  const rejected = { status: 0, noEmail: 0, dataQuality: 0, duplicate: 0, domainMismatch: 0 };
+  const rejected = { status: 0, noEmail: 0, dataQuality: 0, duplicate: 0, domainMismatch: 0, zuGross: 0 };
   const seen = new Set<string>();
   const eligible: Account[] = [];
 
@@ -130,7 +177,33 @@ export function selectForApproval(
     if (INELIGIBLE.has(st)) { rejected.status += 1; continue; }
     const email = (a.email ?? "").trim();
     if (!email) { rejected.noEmail += 1; continue; }
+    if (!istZustellbar(email)) { rejected.noEmail += 1; continue; }
     if (!a.company || !a.industry) { rejected.dataQuality += 1; continue; }
+
+    /**
+     * OBERGRENZE — hier fehlte sie, im Nachfassen gab es sie längst.
+     *
+     * `followup-run.ts` schliesst seit dem 19.08. alles über 2.000
+     * Mitarbeitende aus, plus `istGrosskonzern` für die 55 % der Leads, bei
+     * denen im CRM gar keine Zahl steht. Der ERSTKONTAKT hatte beides nicht:
+     * ein Lead ohne hinterlegte Grösse lief hier ungebremst durch.
+     *
+     * Aufgefallen ist das beim Automatisieren der Pool-Erstellung. Der
+     * Versandpool trug die Regel bis dahin stellvertretend — er verlangte eine
+     * belegte Mitarbeiterzahl, weil sonst Schaeffler und MAHLE mitgefahren
+     * wären. Das kostete 43 der 75 verbleibenden Leads und hätte auch REEL
+     * ausgeschlossen, unsere erste gebuchte Demo, die überhaupt keine Zahl
+     * hinterlegt hat.
+     *
+     * Mit der Regel an der richtigen Stelle darf der Pool wieder alle
+     * Kandidaten führen: die Grösse filtert die Engine, nicht die CSV-Datei.
+     *
+     * KEINE UNTERGRENZE — Bcomp hat 51 Mitarbeitende und ist die
+     * aussichtsreichste Anfrage der Kampagne.
+     */
+    const mitarbeitende = typeof a.employees === "number" && a.employees > 0 ? a.employees : null;
+    if (mitarbeitende !== null && mitarbeitende > MAX_MITARBEITENDE) { rejected.zuGross += 1; continue; }
+    if (istGrosskonzern(email)) { rejected.zuGross += 1; continue; }
     const key = email.toLowerCase();
     if (seen.has(key)) { rejected.duplicate += 1; continue; }
     if (!domainMatches(email, a.website, a.company)) { rejected.domainMismatch += 1; continue; }
@@ -138,14 +211,40 @@ export function selectForApproval(
     eligible.push(a);
   }
 
-  // Fit-first, personalized address as tiebreaker.
-  eligible.sort(
-    (a, b) =>
-      b.revenueScore - a.revenueScore ||
-      b.fitScore - a.fitScore ||
-      (Number(isPersonalized(b.email as string)) - Number(isPersonalized(a.email as string))) ||
-      b.buyingIntent - a.buyingIntent,
-  );
+  /**
+   * Eine mitgegebene Reihenfolge schlaegt den fitScore.
+   *
+   * Der Versandpool ist bereits eine Rangfolge — `lookalike.mjs` sortiert ihn
+   * nach Aehnlichkeit zu den 41 belegten Kaeufern. Hier wurde er trotzdem neu
+   * sortiert, nach revenueScore/fitScore, und damit weggeworfen.
+   *
+   * Das ist nicht bloss doppelt gemoppelt, sondern die schlechtere der beiden
+   * Rangfolgen: REEL GmbH, die einzige gebuchte Demo, hatte fitScore 65 und
+   * waere ueber diese Sortierung nie in einen Batch gekommen. Genau deshalb
+   * wurde das Lookalike-Scoring ueberhaupt gebaut — aus abgeschlossenen
+   * Kaeufen statt aus Annahmen.
+   *
+   * Ohne Reihenfolge bleibt alles wie bisher: wer `approve` ohne Whitelist
+   * aufruft, bekommt weiter die fit-basierte Sortierung.
+   */
+  if (order?.length) {
+    const rang = new Map(order.map((id, i) => [id, i]));
+    const ANS_ENDE = Number.MAX_SAFE_INTEGER;
+    eligible.sort(
+      (a, b) =>
+        (rang.get(a.id) ?? ANS_ENDE) - (rang.get(b.id) ?? ANS_ENDE) ||
+        (Number(isPersonalized(b.email as string)) - Number(isPersonalized(a.email as string))),
+    );
+  } else {
+    // Fit-first, personalized address as tiebreaker.
+    eligible.sort(
+      (a, b) =>
+        b.revenueScore - a.revenueScore ||
+        b.fitScore - a.fitScore ||
+        (Number(isPersonalized(b.email as string)) - Number(isPersonalized(a.email as string))) ||
+        b.buyingIntent - a.buyingIntent,
+    );
+  }
 
   const pick = eligible.slice(0, limit);
   return {

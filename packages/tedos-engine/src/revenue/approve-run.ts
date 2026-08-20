@@ -30,20 +30,24 @@ function main(): void {
   }
   const storage = createStorage();
   let accounts = loadAccounts();
+  // Die REIHENFOLGE der Datei ist Teil der Aussage, nicht nur die Menge:
+  // lookalike.mjs sortiert den Pool nach Aehnlichkeit zu den 41 belegten
+  // Kaeufern. Sie wird deshalb mitgegeben statt weggeworfen.
+  let reihenfolge: string[] = [];
   if (IDS_FILE) {
-    const ids = new Set(
-      readFileSync(IDS_FILE, "utf8").split("\n").slice(1)
-        .map((l) => l.split(";")[0]?.trim()).filter(Boolean),
-    );
+    reihenfolge = readFileSync(IDS_FILE, "utf8").split("\n").slice(1)
+      .map((l) => l.split(";")[0]?.trim() ?? "").filter(Boolean);
+    const ids = new Set(reihenfolge);
     const before = accounts.length;
     accounts = accounts.filter((a) => ids.has(a.id));
     console.log(`Whitelist: ${IDS_FILE} → ${ids.size} IDs · CRM ${before} → ${accounts.length} Kandidaten`);
+    console.log(`Rangfolge: aus der Pool-Datei (nicht fitScore — der ist antikorreliert zur einzigen Demo)`);
   }
-  const sel = selectForApproval(accounts, loadLeadStatus(storage), N);
+  const sel = selectForApproval(accounts, loadLeadStatus(storage), N, reihenfolge);
 
   console.log(`Approval-Lauf (gehärteter Filter) · Ziel: ${N} · Modus: ${APPLY ? "APPLY" : "Vorschau"}`);
   console.log(`Eligible: ${sel.eligible} · personalisiert im Pick: ${sel.personalizedInPick}/${sel.pick.length}`);
-  console.log(`Abgelehnt: ${sel.rejected.status} kontaktiert/entschieden · ${sel.rejected.noEmail} ohne Adresse · ${sel.rejected.dataQuality} Datenqualität · ${sel.rejected.duplicate} Dubletten · ${sel.rejected.domainMismatch} Domain-Mismatch`);
+  console.log(`Abgelehnt: ${sel.rejected.status} kontaktiert/entschieden · ${sel.rejected.noEmail} ohne Adresse · ${sel.rejected.dataQuality} Datenqualität · ${sel.rejected.duplicate} Dubletten · ${sel.rejected.domainMismatch} Domain-Mismatch · ${sel.rejected.zuGross} zu groß`);
   console.log("\n── Auswahl ─────────────────────────────────────────────────");
   sel.pick.forEach((a, i) => {
     console.log(`${String(i + 1).padStart(3)}. ${a.company} · ${a.industry} · fit=${a.fitScore} · ${a.email}${isPersonalized(a.email as string) ? "  [pers]" : ""}`);

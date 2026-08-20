@@ -24,7 +24,12 @@ DRY=""
 [[ "${1:-}" == "--dry" ]] && DRY="--dry"
 
 DATUM="$(date +%Y-%m-%d)"
-POOL="/Users/tedosammor/Desktop/TedOS/Sales/leads-zulieferer/versandpool-icp-v3.csv"
+# Feststehender Name, taeglich von recherche.sh neu gebaut — nicht mehr
+# "-icp-v3": eine durchnummerierte Datei zwingt dazu, hier mitzuziehen, und
+# genau das wird vergessen. Der Vorgaenger v3 war am 20.08. auf 75 Leads
+# abgeschmolzen, waehrend 919 Leads im CRM nur auf eine nachgetragene Adresse
+# warteten.
+POOL="/Users/tedosammor/Desktop/TedOS/Sales/leads-zulieferer/versandpool-aktuell.csv"
 PROTOKOLL=".revenue-reports/taeglich-${DATUM}.log"
 mkdir -p .revenue-reports
 
