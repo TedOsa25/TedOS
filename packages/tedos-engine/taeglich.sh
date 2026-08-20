@@ -56,10 +56,16 @@ else
   # Freigaben mit jedem Lauf um 20, waehrend nur 20 versendet werden — der
   # Ueberhang bliebe liegen und die Batchzusammensetzung waere nicht mehr
   # vorhersagbar. (Ein Trockenlauf hinterlaesst genau diesen Ueberhang.)
+  # String(), nicht die nackte Zahl: console.log faerbt Zahlen ein
+  # ("\e[33m20\e[39m"). Der Vergleich unten brach damit mit "operand expected"
+  # ab — und weil danach auch $((20 - OFFEN)) scheiterte, lief `approve` nie.
+  # Am 20.08. blieb das folgenlos (20 lagen schon frei); an jedem normalen Tag
+  # waere der Erstkontakt still ausgefallen.
   OFFEN=$(TEDOS_STORAGE_PATH=./.revenue-state node -e '
     const j=JSON.parse(require("fs").readFileSync("./.revenue-state/revenue-lead-status.json","utf8"));
-    console.log(Object.values(j).filter(r=>r.status==="approved").length);
+    console.log(String(Object.values(j).filter(r=>r.status==="approved").length));
   ' 2>/dev/null || echo 0)
+  [[ "$OFFEN" =~ ^[0-9]+$ ]] || OFFEN=0
   if [[ "$OFFEN" -ge 20 ]]; then
     echo "   $OFFEN Leads bereits freigegeben — keine neue Freigabe nötig." | tee -a "$PROTOKOLL"
   else
