@@ -6,6 +6,13 @@
   Mails landen nicht in derselben Sekunde wie jede andere Automatik.
   Montag(1) bis Freitag(5); am Wochenende geht nichts raus.
 
+  NACHHOL-FENSTER 09:07-11:00. Zwei Ausloeser, ein Torwaechter:
+  der Kalender-Slot unten und RunAtLoad beim Anmelden. Welcher davon feuert,
+  entscheidet taeglich.sh --geplant selbst — es laeuft nur werktags, nur
+  zwischen 09:07 und 11:00 und nur, wenn heute noch nicht versendet wurde
+  (Stempel .revenue-state/letzter-versandtag). Uebersprungene Laeufe stehen
+  mit Grund in .revenue-reports/uebersprungen.log.
+
   KEYCHAIN: laeuft als User-Agent in der angemeldeten Sitzung, deshalb ist der
   Schluesselbund entsperrt und `security find-generic-password` funktioniert.
   Ist der Rechner aus oder niemand angemeldet, faellt der Lauf aus — das ist
@@ -25,7 +32,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine/taeglich.sh</string>
+    <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine/taeglich.sh --geplant</string>
   </array>
 
   <key>WorkingDirectory</key>
@@ -41,15 +48,22 @@
   </array>
 
   <!--
-    NICHT nachholen, wenn der Rechner zur Startzeit aus war.
+    Beim Anmelden starten — das IST der Nachholmechanismus.
 
-    Der Standard waere, den verpassten Lauf beim naechsten Aufwachen sofort
-    nachzuziehen. Bei Kaltakquise ist das falsch: die Mail ginge dann um 23 Uhr
-    oder am Samstag raus. Ein ausgefallener Tag ist billiger als ein Versand
-    zur Unzeit.
+    War der Rechner um 09:07 aus, faellt der Kalender-Slot ersatzlos aus: eine
+    frisch angemeldete launchd-Sitzung weiss nichts von einem verpassten
+    Termin. Genau so ging der 21.08.2026 verloren (Boot 09:58).
+
+    Frueher stand hier <false/> mit der Begruendung, das verhindere einen
+    Versand zur Unzeit. Das hat es nie getan: RunAtLoad steuert nur den Start
+    beim Laden — einen verpassten Kalender-Slot spielt launchd beim Aufwachen
+    aus dem Schlaf trotzdem nach, und zwar zu genau der Unzeit, die vermieden
+    werden sollte. Die Bremse gehoert deshalb ins Skript, wo sie beide Wege
+    abdeckt: taeglich.sh --geplant beendet sich ohne Versand, sobald es
+    Wochenende, vor 09:07, ab 11:00 oder heute schon gelaufen ist.
   -->
   <key>RunAtLoad</key>
-  <false/>
+  <true/>
 
   <key>StandardOutPath</key>
   <string>/Users/tedosammor/Desktop/TedOS/ai-os/packages/tedos-engine/.revenue-reports/launchd-versand.log</string>

@@ -6,7 +6,7 @@ sind die versionierte Fassung; im Betrieb liegen sie unter
 
 | Agent | Wann | Was |
 |---|---|---|
-| `com.heycarbo.versand` | Mo–Fr **09:07** | `taeglich.sh` — Posteingang, Erstkontakt (20), Nachfassen (20) |
+| `com.heycarbo.versand` | Mo–Fr **09:07**, nachholbar bis **11:00** | `taeglich.sh --geplant` — Posteingang, Erstkontakt (20), Nachfassen (20) |
 | `com.heycarbo.recherche` | Mo–Fr **22:41** | `recherche.sh --limit 200` — Impressen lesen, CRM ergänzen, Pool neu bauen |
 
 Die Reihenfolge ist der Punkt: der Poolbau läuft abends, der Versand liest den
@@ -38,10 +38,36 @@ stattdessen `./taeglich.sh --dry` — aber Achtung, ein Trockenlauf hinterlässt
 
 ## Was passiert, wenn der Rechner aus war
 
-Nichts wird nachgeholt (`RunAtLoad` ist `false`, kein `StartInterval`-Nachzug).
-Beim Versand ist das Absicht: ein verpasster Lauf, der um 23 Uhr oder am
-Samstag nachgezogen wird, ist schlimmer als ein ausgefallener Tag. Der Pool
-altert derweil nicht — er wird beim nächsten Recherche-Lauf ohnehin neu gebaut.
+**Versand: Nachhol-Fenster 09:07–11:00.** War der Rechner um 09:07 aus, fällt
+der Kalender-Slot ersatzlos aus — eine frisch angemeldete `launchd`-Sitzung
+weiß nichts von einem verpassten Termin. Genau so ging der 21.08.2026 verloren
+(Boot 09:58, kein Versand, kein Alarm). Deshalb startet der Agent zusätzlich
+beim Anmelden (`RunAtLoad`) und ruft `taeglich.sh --geplant`.
+
+Der Torwächter sitzt im **Skript**, nicht in der Plist: `launchd` kann Werktag
+und Uhrzeit prüfen, aber nicht „heute wurde schon versendet". Ohne Versand
+beendet sich der Lauf bei
+
+- Wochenende
+- vor 09:07 (der Kalender-Slot feuert gleich selbst)
+- ab 11:00 — Kaltakquise um 23 Uhr ist schlimmer als ein ausgefallener Tag
+- `.revenue-state/letzter-versandtag` trägt bereits das heutige Datum
+
+Jeder übersprungene Lauf schreibt seinen Grund nach
+`.revenue-reports/uebersprungen.log`. **`./taeglich.sh` von Hand kennt weder
+Fenster noch Stempel** — wer tippt, hat sich etwas dabei gedacht.
+
+Der Stempel wird *vor* dem Versand gesetzt: ein Absturz mitten im Batch löst
+dadurch keinen zweiten aus. Der Preis ist, dass eine SMTP-Störung den Tag
+kostet, obwohl nichts rausging — dann von Hand nachfahren.
+
+Frühere Fassungen begründeten `RunAtLoad=false` damit, es verhindere einen
+Versand zur Unzeit. Das hat es nie getan: `RunAtLoad` steuert nur den Start
+beim Laden — einen verpassten Kalender-Slot spielt `launchd` beim Aufwachen aus
+dem Schlaf trotzdem nach. Erst der Wächter im Skript deckt beide Wege ab.
+
+**Recherche: nichts wird nachgeholt** (`RunAtLoad` bleibt `false`). Folgenlos —
+der Pool von gestern bleibt stehen und wird beim nächsten Lauf neu gebaut.
 
 ## Voraussetzungen
 
@@ -58,6 +84,7 @@ altert derweil nicht — er wird beim nächsten Recherche-Lauf ohnehin neu gebau
 ```
 .revenue-reports/launchd-versand.log      # stdout/stderr des Agents
 .revenue-reports/launchd-recherche.log
+.revenue-reports/uebersprungen.log        # Laeufe, die der Waechter gestoppt hat — mit Grund
 .revenue-reports/taeglich-JJJJ-MM-TT.log  # der eigentliche Ablauf
 .revenue-reports/recherche-JJJJ-MM-TT.log
 ```

@@ -10,8 +10,9 @@
 # Jeder Schritt bricht den Ablauf ab, wenn er scheitert — ein Nachfasslauf auf
 # veralteter Datenlage ist schlimmer als gar keiner.
 #
-#   ./taeglich.sh          # scharf
-#   ./taeglich.sh --dry    # alles bauen, nichts senden
+#   ./taeglich.sh            # scharf, von Hand — laeuft immer
+#   ./taeglich.sh --dry      # alles bauen, nichts senden
+#   ./taeglich.sh --geplant  # aus launchd: laeuft nur im Nachhol-Fenster
 #
 # Voraussetzungen: Keychain entsperrt (heycarbo-smtp, supabase-service-key),
 # Netzverbindung. Bei gesperrtem Keychain bricht Schritt 1 ab und es geht
@@ -21,7 +22,16 @@ set -uo pipefail
 cd "$(dirname "$0")"
 
 DRY=""
-[[ "${1:-}" == "--dry" ]] && DRY="--dry"
+GEPLANT=""
+for ARG in "$@"; do
+  case "$ARG" in
+    --dry)     DRY="--dry" ;;
+    --geplant) GEPLANT="1" ;;
+    *) echo "Unbekanntes Argument: $ARG" >&2
+       echo "Nutzung: $0 [--dry] [--geplant]" >&2
+       exit 2 ;;
+  esac
+done
 
 DATUM="$(date +%Y-%m-%d)"
 # Feststehender Name, taeglich von recherche.sh neu gebaut — nicht mehr
@@ -31,12 +41,56 @@ DATUM="$(date +%Y-%m-%d)"
 # warteten.
 POOL="/Users/tedosammor/Desktop/TedOS/Sales/leads-zulieferer/versandpool-aktuell.csv"
 PROTOKOLL=".revenue-reports/taeglich-${DATUM}.log"
-mkdir -p .revenue-reports
+# Traegt das Datum des letzten SCHARFEN Laufs. Einzige Quelle fuer "heute ist
+# schon versendet worden" — das Tagesprotokoll taugt dafuer nicht, ein
+# Trockenlauf legt es genauso an.
+STEMPEL=".revenue-state/letzter-versandtag"
+mkdir -p .revenue-reports .revenue-state
 
 kc() { security find-generic-password -s "$1" -w 2>/dev/null | base64 -d 2>/dev/null || true; }
 
 sagen() { echo -e "\n\033[1m$*\033[0m" | tee -a "$PROTOKOLL"; }
 fehler() { echo "⛔ $*" | tee -a "$PROTOKOLL" >&2; exit 1; }
+
+# --- Nachhol-Fenster: 09:07 bis 11:00, werktags, hoechstens einmal -----------
+#
+# Der Regelfall ist der Kalender-Slot um 09:07. War der Rechner da aus, faellt
+# er ersatzlos aus: eine frisch angemeldete launchd-Sitzung weiss nichts von
+# einem verpassten Termin. Am 21.08.2026 bootete der Rechner 09:58 — es ging
+# nichts raus und niemand hat es gemerkt.
+#
+# Deshalb startet launchd den Lauf jetzt ZUSAETZLICH beim Anmelden
+# (RunAtLoad) und dieser Block entscheidet, ob das legitim ist. Er ist
+# absichtlich hier und nicht in der Plist: launchd kann "Werktag" und
+# "Uhrzeit" pruefen, aber nicht "heute ist schon versendet worden".
+#
+# Die Obergrenze 11:00 ist der eigentliche Zweck. Ohne sie liefe der Nachhol-
+# Versand irgendwann — beim Aufwachen um 23 Uhr, beim Anmelden am Sonntag. Ein
+# ausgefallener Tag ist billiger als eine Kaltakquise-Mail zur Unzeit.
+#
+# Gilt NUR fuer --geplant. Wer das Skript von Hand aufruft, hat sich etwas
+# dabei gedacht und wird nicht ausgebremst.
+if [[ -n "$GEPLANT" ]]; then
+  # TAEGLICH_TEST_* nur fuer den Selbsttest weiter unten; im Betrieb ungesetzt.
+  WOCHENTAG="${TAEGLICH_TEST_WOCHENTAG:-$(date +%u)}"   # 1=Mo … 7=So
+  # 10# erzwingt Dezimal: "0907" waere sonst eine ungueltige Oktalzahl und der
+  # Vergleich braeche mit "value too great for base" ab.
+  JETZT=$((10#${TAEGLICH_TEST_ZEIT:-$(date +%H%M)}))
+  LETZTER="$( [[ -f "$STEMPEL" ]] && cat "$STEMPEL" || echo "" )"
+
+  GRUND=""
+  if   [[ "$WOCHENTAG" -gt 5 ]];            then GRUND="Wochenende"
+  elif [[ "$JETZT" -lt 907 ]];              then GRUND="zu frueh (Fenster ab 09:07)"
+  elif [[ "$JETZT" -ge 1100 ]];             then GRUND="Fenster zu (Schluss 11:00)"
+  elif [[ "$LETZTER" == "$DATUM" ]];        then GRUND="heute bereits versendet"
+  fi
+
+  if [[ -n "$GRUND" ]]; then
+    printf '%s  uebersprungen — %s\n' "$(date '+%F %T')" "$GRUND" \
+      | tee -a .revenue-reports/uebersprungen.log
+    exit 0
+  fi
+fi
 
 sagen "═══ Tagesablauf $DATUM $( [[ -n "$DRY" ]] && echo '(Trockenlauf)' ) ═══"
 
@@ -54,6 +108,14 @@ IMAP_HOST=imap.ionos.de IMAP_PORT=993 IMAP_USER=ted@heycarbo.com IMAP_PASS="$SMT
 
 # --- 2) Erstkontakt ---------------------------------------------------------
 sagen "2/3 · Erstkontakt-Batch"
+# Ab hier gilt der Tag als verbraucht. Der Stempel steht bewusst VOR dem
+# Versand: ein Absturz mitten im Batch darf keinen zweiten ausloesen. Der Preis
+# ist, dass eine SMTP-Stoerung den Tag kostet, obwohl nichts rausging — dann
+# ./taeglich.sh von Hand aufrufen, der Handlauf kennt kein Fenster und keinen
+# Stempel. Schritt 1 ist an dieser Stelle schon durch; braeche der Keychain ab,
+# waeren wir nie hier und der naechste Anmeldevorgang duerfte es nochmal
+# versuchen.
+[[ -z "$DRY" ]] && echo "$DATUM" > "$STEMPEL"
 if [[ ! -f "$POOL" ]]; then
   echo "⚠ Kein Versandpool unter $POOL — Erstkontakt übersprungen." | tee -a "$PROTOKOLL"
 else
