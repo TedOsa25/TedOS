@@ -132,7 +132,7 @@ describe("revenue: content generation + quality gates", () => {
     const chemie = normalize({ id: "3", name: "Chemie AG", segment: "Chemie" }, 2);
     assert.equal(
       researchIntro(chemie),
-      "Bei unserer Recherche ist uns aufgefallen, dass Chemie AG internationale Industriekunden beliefert. Genau diese Unternehmen erwarten heute transparente CO₂-Daten entlang der gesamten Lieferkette.",
+      "Bei unserer Recherche ist uns aufgefallen, dass Chemie AG Industriekunden beliefert. Genau diese Unternehmen erwarten heute transparente CO₂-Daten entlang der gesamten Lieferkette.",
     );
     const logistik = normalize({ id: "4", name: "Trans GmbH", segment: "Logistik" }, 3);
     assert.equal(
@@ -433,6 +433,20 @@ describe("Konsumgüter: Handel statt Industriekunden", () => {
       // Nur der Einstieg wird geprüft: der Value-Absatz ist kampagnengesteuert.
       assert.doesNotMatch(o.emailText.split("\n").filter(Boolean)[1] ?? "", /Industriekunden/, `${b}: behauptet Industriekunden`);
       assert.match(o.emailText, /Handelskunden und Ausschreibungen/, `${b}: nennt den Treiber nicht`);
+    }
+  });
+
+  /**
+   * Die Grenze zwischen den beiden Nachbarn: WELCHE Kunden folgt aus der
+   * Branche, WIE WEIT sie reichen nicht. "Industriekunden" bleibt bei Chemie
+   * wie bei Maschinenbau; "internationale" ist am 02.09.2026 gefallen, weil es
+   * eine Behauptung ueber den einzelnen Empfaenger ist, die kein Feld deckt.
+   */
+  test("Chemie behauptet keine internationale Kundschaft", () => {
+    for (const b of ["Chemie", "Kunststoff", "Polymer"]) {
+      const o = buildOpportunity(lead(b), () => "2026-08-09T09:00:00.000Z", "E");
+      assert.doesNotMatch(o.emailText, /internationale Industriekunden/, `${b}: behauptet internationale Kundschaft`);
+      assert.match(o.emailText, /Industriekunden beliefert/, `${b}: nennt die Kundenart nicht mehr`);
     }
   });
 

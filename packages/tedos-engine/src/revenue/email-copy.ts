@@ -186,7 +186,22 @@ export function kampagnenName(campaign: string): string {
 function whoByBucket(bucket: Bucket, industry: string): string {
   switch (bucket) {
     case "maschinenbau": return "zahlreiche Industriekunden beliefert";
-    case "chemie": return "internationale Industriekunden beliefert";
+    /**
+     * "internationale" ist am 02.09.2026 gestrichen — der Rest bleibt.
+     *
+     * Dass ein Chemie- oder Kunststoffverarbeiter Industriekunden beliefert,
+     * folgt aus der Branche, genau wie beim Maschinenbau daneben. Dass er
+     * INTERNATIONAL liefert, folgt aus nichts: von 999 offenen Pool-Leads
+     * traegt einer ein `customers`-Feld, und ein Kunststoffverarbeiter mit
+     * 40 Mitarbeitenden beliefert womoeglich nur deutsche Abnehmer.
+     *
+     * Es ist dieselbe Klasse wie die Faelle, die der Absatz oben schon
+     * aufzaehlt (Waldemar Link, Kaldewei, dann Verla-Pharm ueber den
+     * pharma-Zweig) — nur eine Stufe leiser, weil das falsche Wort nicht der
+     * ganze Satz ist. Es steht trotzdem im ERSTEN Satz, wo Glaubwuerdigkeit
+     * entsteht, und trifft aktuell 9 Empfaenger im Pool.
+     */
+    case "chemie": return "Industriekunden beliefert";
     // Wie im Default: nur die belegte Branche nennen, nichts über die Kunden
     // behaupten. Wer Arzneimittel herstellt, beliefert Apotheken, Großhandel
     // und Kliniken — nicht "Industriekunden".
