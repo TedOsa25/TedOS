@@ -280,6 +280,14 @@ export const HEYCARBO_NEED: Record<string, string> = {
   // Handel. "in Ausschreibungen" trägt in beiden Welten und behauptet nichts
   // über die Abnehmerstruktur.
   pcf: "Product Carbon Footprints je Artikel sind in Ausschreibungen zunehmend Teil der Vergabeentscheidung.",
+  // Zwei Auspraegungen desselben Mechanismus, getrennt am 02.09.2026. Wer ein
+  // TEIL zuliefert, wird nach der Teilenummer gefragt; wer eine MASCHINE
+  // liefert, nach dem Erzeugnis. Beide Saetze beschreiben nur, wie gefragt
+  // wird — sie behaupten nichts ueber den Empfaenger, seine Kunden oder seine
+  // Zertifikate. Das ist Absicht: der Einstiegssatz hat zweimal Kunden
+  // behauptet, die niemand belegen konnte.
+  "pcf-teil": "Für zugelieferte Teile wird der CO₂-Fußabdruck je Teilenummer abgefragt, nicht für das Unternehmen.",
+  "pcf-anlage": "Bei Maschinen und Anlagen fragen Industriekunden den Fußabdruck je Erzeugnis für ihre Scope-3-Bilanz ab.",
   csrd: "Für die CSRD-Berichtspflicht müssen Scope 1 bis 3 prüffähig dokumentiert sein.",
   "supplier-management": "Ihre Kunden fordern Lieferantendaten für ihre eigene Scope-3-Bilanz an – meist mit Frist.",
   esg: "EcoVadis- und CDP-Fragebögen kosten pro Antwort schnell mehrere Arbeitstage.",
@@ -325,12 +333,44 @@ export function selectCampaignHeycarbo(a: Account): string {
  * The branch itself is a real signal: a company that ships physical articles
  * into industrial customers gets asked for a PCF per article, while an
  * automotive supplier gets asked through Catena-X specifically.
+ *
+ * MASCHINEN- UND ANLAGENBAU gehoert in denselben pcf-Zweig, stand aber bis zum
+ * 02.09.2026 nicht drin. Die zweite Zeile listet ausschliesslich WERKSTOFFE
+ * (Kunststoff, Metall, Stahl, Keramik, Glas) — sie wurde am alten
+ * Zulieferer-Bestand geschrieben, in dem es kaum Maschinenbauer gab. Der
+ * VDMA-Messe-Import vom 31.08. hat den Pool umgedreht: von 780 offenen Leads
+ * trugen 626 eine Maschinenbau-Branche (Lufttechnik 110, Robotik 102,
+ * Elektrische Automation 85, Antriebstechnik 66, Fluidtechnik 59, Armaturen 51,
+ * Landtechnik 40 …) und fielen samt und sonders auf "scope-3" — 80 % des Pools
+ * lasen denselben Satz.
+ *
+ * Ein Kran-, Pumpen- oder Roboterhersteller erfuellt die Bedingung des
+ * Absatzes oben woertlich: er liefert ein physisches Erzeugnis an
+ * Industriekunden und wird danach nach dessen PCF gefragt. Die Regel ist also
+ * unveraendert — sie wird nur auf einen Bestand angewandt, den es bei ihrer
+ * Formulierung noch nicht gab.
+ *
+ * Reihenfolge beachten: "automotive" wird vorher geprueft und bleibt bei
+ * Catena-X. "fahrzeug" faengt Fahrzeugbau weiterhin dort ab.
  */
 export function campaignFromIndustry(industry: string): string {
   const s = String(industry ?? "").toLowerCase();
   if (/automotive|mobility|fahrzeug|automobil|\bkfz\b/.test(s)) return "catena-x";
-  if (/kunststoff|chemie|polymer|plastic|metall|stahl|aluminium|guss|gieß|giess|keramik|glas|papier|verpackung|gummi|elastomer|elektronik|elektrotechnik|kabel|komponent|oberfläch|beschicht|textil|werkzeug|feinmechanik/.test(s))
-    return "pcf";
+  /**
+   * TEIL — wird in das Erzeugnis eines anderen verbaut, die Anfrage kommt je
+   * Teilenummer. Das ist die urspruengliche Werkstoff-Liste (sie beschrieb
+   * genau diese Rolle) plus die Komponentenbauer aus dem VDMA-Bestand:
+   * Antriebstechnik, Armaturen, Pumpen, Fluidtechnik, Lager, Praezisions-
+   * werkzeuge.
+   */
+  if (/kunststoff|chemie|polymer|plastic|metall|stahl|aluminium|guss|gieß|giess|keramik|glas|papier|verpackung|gummi|elastomer|elektronik|elektrotechnik|kabel|komponent|oberfläch|beschicht|textil|werkzeug|feinmechanik|antriebstechnik|armaturen|pumpen|fluidtechnik|lager\b|verbindungstechnik|pr[äa]zision|dichtung|feder\b|schrauben/.test(s))
+    return "pcf-teil";
+  /**
+   * ERZEUGNIS — eine Maschine oder Anlage, die der Kunde selbst betreibt. Die
+   * Anfrage gilt dem gelieferten Geraet, weil es in dessen Scope 3 landet.
+   */
+  if (/maschinen|anlagen|robotik|automation|lufttechnik|f[öo]rdertechnik|hebetechnik|intralogistik|\bkran|landtechnik|verfahrenstechnik|reinigungssystem|montage|holzbearbeitung|drucktechnik|papiertechnik/.test(s))
+    return "pcf-anlage";
   return "scope-3";
 }
 

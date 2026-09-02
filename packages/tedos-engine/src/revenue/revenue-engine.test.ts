@@ -8,6 +8,7 @@ import { InMemoryStorage } from "../storage.js";
 import { DistributionQueue } from "../distribution-queue.js";
 import { parseLeads, normalize, prioritize, type Account } from "./accounts.js";
 import { selectCampaign, qualityCheck, buildOpportunity, buildVariants, RevenueEngine } from "./revenue-engine.js";
+import { needLeadHeycarbo } from "./email-copy.js";
 import {
   germanizePain, researchIntro, kampagnenName,
   FOLLOWUP1_ARME, FOLLOWUP2_ARME, followUp1Fuer, followUp2Fuer,
@@ -309,15 +310,47 @@ describe("campaign fallback from industry", () => {
     // These carry no pcf_/catena_x_/csrd_relevance and no pain points — the
     // normal state of ~97 % of the CRM.
     assert.equal(selectCampaign(bare("Automotive / Zulieferer")), "catena-x");
-    assert.equal(selectCampaign(bare("Kunststoff")), "pcf");
-    assert.equal(selectCampaign(bare("Elektrotechnik")), "pcf");
-    assert.equal(selectCampaign(bare("Oberflächentechnik")), "pcf");
-    assert.equal(selectCampaign(bare("Metall")), "pcf");
+    assert.equal(selectCampaign(bare("Kunststoff")), "pcf-teil");
+    assert.equal(selectCampaign(bare("Elektrotechnik")), "pcf-teil");
+    assert.equal(selectCampaign(bare("Oberflächentechnik")), "pcf-teil");
+    assert.equal(selectCampaign(bare("Metall")), "pcf-teil");
+  });
+
+  /**
+   * TEIL vs. ERZEUGNIS, getrennt am 02.09.2026.
+   *
+   * Der VDMA-Messe-Import drehte den Pool auf Maschinenbau um: 626 von 780
+   * offenen Leads trugen eine Branche, die keine der Werkstoff-Regeln traf,
+   * und lasen deshalb alle denselben scope-3-Satz. Wer ein Teil zuliefert,
+   * wird nach der Teilenummer gefragt; wer eine Maschine liefert, nach dem
+   * Erzeugnis — zwei verschiedene Gespraeche.
+   */
+  test("Komponentenbauer bekommen die Teilenummer-Ansprache", () => {
+    for (const ind of ["Antriebstechnik", "Armaturen", "Pumpen und Systeme", "Fluidtechnik", "Präzisionswerkzeuge"])
+      assert.equal(selectCampaign(bare(ind)), "pcf-teil", ind);
+  });
+
+  test("Maschinen- und Anlagenbauer bekommen die Erzeugnis-Ansprache", () => {
+    for (const ind of ["Lufttechnik", "Robotik und Automation", "Fördertechnik", "Landtechnik", "Holzbearbeitungsmaschinen"])
+      assert.equal(selectCampaign(bare(ind)), "pcf-anlage", ind);
+  });
+
+  test("beide Zweige tragen einen eigenen, nicht-leeren Need-Satz", () => {
+    const teil = needLeadHeycarbo("pcf-teil");
+    const anlage = needLeadHeycarbo("pcf-anlage");
+    assert.ok(teil.length > 0 && anlage.length > 0);
+    assert.notEqual(teil, anlage, "sonst waere die Trennung folgenlos");
+    // Budget aus dem Kommentar an HEYCARBO_NEED: hoechstens 16 Woerter.
+    for (const satz of [teil, anlage]) assert.ok(satz.split(/\s+/).length <= 16, satz);
   });
 
   test("non-manufacturing branches keep the generic Scope-3 framing", () => {
     assert.equal(selectCampaign(bare("Logistik")), "scope-3");
     assert.equal(selectCampaign(bare("Beratung")), "scope-3");
+    // Konsumgueter bleiben draussen: dort entscheidet der Handel, nicht ein
+    // Industriekunde mit Scope-3-Bilanz.
+    assert.equal(selectCampaign(bare("Kosmetik")), "scope-3");
+    assert.equal(selectCampaign(bare("Lebensmittel")), "scope-3");
   });
 
   test("explicit enrichment still wins over the industry guess", () => {
