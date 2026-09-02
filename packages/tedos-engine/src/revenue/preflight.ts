@@ -21,7 +21,7 @@ import { promisify } from "node:util";
 
 import type { Storage } from "./../storage.js";
 import { type Account, loadAccounts } from "./accounts.js";
-import { loadLeadStatus, selectSendable } from "./batch-send.js";
+import { loadLeadStatus, selectSendable, konzernVerwandte } from "./batch-send.js";
 import { activeBrandProfile } from "./brand-profile.js";
 import { ensureReportDir, reportStem, writeReportFile } from "./report-file.js";
 
@@ -387,6 +387,22 @@ export async function runPreflight(opts: PreflightOptions): Promise<PreflightRes
   checks.push({ id: "opt-out", label: "Opt-out ausgeschlossen", ok: true, blocking: false, detail: `${sel.blockedUnsub} abgemeldete Kontakte blockiert` });
   checks.push({ id: "dedupe", label: "Doppelte Empfänger ausgeschlossen", ok: true, blocking: false, detail: `${sel.dupDropped} Duplikate · ${sel.noEmailDropped} ohne Adresse entfernt` });
   checks.push({ id: "already-contacted", label: "Bereits kontaktierte Adressen ausgeschlossen", ok: true, blocking: false, detail: `${sel.contactedDropped} Adressen aus früheren Batches entfernt` });
+  /**
+   * Nur ein Hinweis — siehe `konzernVerwandte()`. Er BLOCKIERT nicht und
+   * entfernt niemanden: die Regel trifft am Bestand rund zur Haelfte Firmen,
+   * die sich bloss einen Familiennamen teilen. Wer den Hinweis liest,
+   * entscheidet; ungelesen kostet er nichts, weil er im Normalfall leer ist.
+   */
+  const verwandte = konzernVerwandte(sel.batch, accounts, statusMap);
+  checks.push({
+    id: "corporate-group",
+    label: "Konzernverwandte im Batch (nur Hinweis)",
+    ok: true,
+    blocking: false,
+    detail: verwandte.length === 0
+      ? "keine Domain-Verwandtschaft zu bereits kontaktierten Leads"
+      : `${verwandte.length} prüfen: ` + verwandte.map((v) => `${v.company} ↔ ${v.verwandtCompany} (${v.verwandtId}, ${v.status})`).join(" · "),
+  });
   if (mxCheck) checks.push(mxCheck);
   checks.push({ id: "batch-limit", label: "Versandlimit", ok: sel.batch.length > 0, blocking: true, detail: `${sel.batch.length} zu senden (Limit ${opts.batchSize} · ${sel.afterDedupe} verfügbar)${deadMx.length ? ` · ${deadMx.length} unzustellbar entfernt` : ""}` });
 

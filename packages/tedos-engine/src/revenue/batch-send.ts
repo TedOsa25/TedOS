@@ -82,6 +82,16 @@ export interface LeadRecord {
   note?: string;
   /** Welche Betreffvariante versendet wurde (A/B-Auswertung). */
   subjectIndex?: number;
+  /**
+   * Datum einer echten Antwort — unabhaengig vom Trichterstatus.
+   *
+   * Noetig, weil `status` beides tragen muss: Trichterlage UND Messsignal. Eine
+   * Absage gehoert im Trichter auf `lost`, ist fuer den Betreff-Test aber eine
+   * Antwort (die Mail wurde gelesen und beantwortet). Ohne dieses Feld
+   * verschwand HCH095 am 25.08.2026 aus der A/B-Auswertung, als die Absage
+   * eingetragen wurde. `ab-report.ts` zaehlt es vor dem Status.
+   */
+  antwort_am?: string;
   /** Zeitpunkte der Nachfassmails (max. zwei). */
   followup1_at?: string;
   followup2_at?: string;
@@ -376,6 +386,74 @@ export function contactedAddresses(
     if (email && st && ALREADY_CONTACTED.includes(st)) burned.add(email);
   }
   return burned;
+}
+
+/**
+ * Der Stamm einer Mail-Domain: das Label vor der TLD, ohne "www.".
+ * Mehrteilige TLDs (co.uk, com.tr, co.at) werden mitgenommen.
+ */
+export function domainStamm(email: string | undefined): string {
+  const d = String(email ?? "").split("@")[1]?.toLowerCase().trim();
+  if (!d) return "";
+  const teile = d.split(".");
+  const tld = teile.length > 2 && /^(co|com|org|net|gov|ac)$/.test(teile[teile.length - 2] as string) ? 2 : 1;
+  return teile.slice(0, teile.length - tld).join(".").replace(/^www\./, "");
+}
+
+/** Kuerzester Domain-Stamm, der noch als Konzernkennung taugt. */
+const STAMM_MIN = 5;
+
+/**
+ * Gehoeren zwei Domain-Staemme plausibel zur selben Firmengruppe?
+ *
+ * Nur bei Gleichheit oder an einer WORTGRENZE: "scheuch-ligno" zu "scheuch"
+ * ja, "festool" zu "festo" nein. Ohne die Grenze schlugen im Bestand
+ * festo/festool, naber/nabertherm und drei hydro*-Firmen gegen Hydro Extrusion
+ * an — alles verschiedene Unternehmen.
+ */
+export function stammVerwandt(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return a.length >= STAMM_MIN;
+  const [kurz, lang] = a.length <= b.length ? [a, b] : [b, a];
+  if (kurz.length < STAMM_MIN) return false;
+  return lang.startsWith(kurz) && /[-.]/.test(lang[kurz.length] ?? "");
+}
+
+/**
+ * KONZERNVERWANDTE, die der Adressabgleich NICHT sieht.
+ *
+ * `contactedAddresses()` faengt dieselbe Adresse unter zwei Lead-Ids. Eine
+ * Firmengruppe teilt aber oft nur die Domain-Wurzel, nicht das Postfach:
+ * Scheuch COMPONENTS und Scheuch LIGNO gegen die Scheuch Gruppe, Baumueller
+ * Austria gegen die Baumueller Holding, Beckhoff Oesterreich gegen Beckhoff
+ * Deutschland. Alle drei Faelle standen am 02.09.2026 in einem Batch und
+ * mussten von Hand gefunden werden.
+ *
+ * BEWUSST NUR EIN HINWEIS, kein Ausschluss. Am Bestand gemessen trifft die
+ * Regel 31 Paare, von denen rund die Haelfte echte Gruppen sind — der Rest
+ * sind Firmen, die sich bloss einen Familiennamen teilen (Hensel
+ * Studiotechnik/Gustav Hensel, Homann Holzwerkstoffe/Homann Feinkost,
+ * Stiebel-Getriebebau/Stiebel Eltron). Zum Wegwerfen ist das zu ungenau; zum
+ * Hinsehen reicht es, und pro Batch trifft es im Schnitt weniger als einen
+ * Empfaenger.
+ */
+export function konzernVerwandte(
+  batch: Account[],
+  accounts: Account[],
+  statusMap: Record<string, LeadRecord>,
+): { id: string; company: string; verwandtId: string; verwandtCompany: string; status: string }[] {
+  const entschieden = accounts.filter((a) => {
+    const st = statusMap[a.id]?.status;
+    return st && ALREADY_CONTACTED.includes(st) && domainStamm(a.email);
+  });
+  const funde: { id: string; company: string; verwandtId: string; verwandtCompany: string; status: string }[] = [];
+  for (const a of batch) {
+    const s = domainStamm(a.email);
+    if (!s) continue;
+    const treffer = entschieden.find((k) => domainStamm(k.email) !== s && stammVerwandt(s, domainStamm(k.email)));
+    if (treffer) funde.push({ id: a.id, company: a.company, verwandtId: treffer.id, verwandtCompany: treffer.company, status: statusMap[treffer.id]?.status ?? "" });
+  }
+  return funde;
 }
 
 /**

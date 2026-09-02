@@ -10,8 +10,9 @@ import { InMemoryStorage } from "./../storage.js";
 import { normalize, type Account } from "./accounts.js";
 import { getProvider, type EmailProvider, type OutboundEmail, type SendResult } from "./sending.js";
 import {
-  sendApprovedBatch, approveLeads, loadLeadStatus,
+  sendApprovedBatch, approveLeads, loadLeadStatus, markBounced,
   BCC_FIRST_BATCH, FIRST_BATCH_HARD_CAP,
+  domainStamm, stammVerwandt, konzernVerwandte,
 } from "./batch-send.js";
 
 const clock = () => "2026-07-05T09:00:00.000Z";
@@ -160,5 +161,62 @@ describe("batch-send: caps + status + disarm", () => {
     await sendApprovedBatch({ storage, accounts: accounts(1), provider, batchNumber: 1, clock });
     const again = await sendApprovedBatch({ storage, accounts: accounts(1), provider, clock });
     assert.equal(again.attempted, 0);
+  });
+});
+
+
+describe("Konzernverwandte: Domain-Wurzel statt Postfach", () => {
+  const lead = (id: string, name: string, email: string, i: number): Account =>
+    normalize({ id, name, industry: "Maschinenbau", email, website: "https://" + email.split("@")[1], prio: "A", score: 70 }, i);
+
+  test("domainStamm schneidet die TLD ab, auch die mehrteilige", () => {
+    assert.equal(domainStamm("office@scheuch-ligno.com"), "scheuch-ligno");
+    assert.equal(domainStamm("info@beckhoff.at"), "beckhoff");
+    assert.equal(domainStamm("a@firma.co.uk"), "firma");
+    assert.equal(domainStamm(""), "");
+    assert.equal(domainStamm(undefined), "");
+  });
+
+  test("erkennt die Gruppe an Gleichheit oder Wortgrenze", () => {
+    assert.equal(stammVerwandt("beckhoff", "beckhoff"), true);
+    assert.equal(stammVerwandt("scheuch-ligno", "scheuch"), true);
+    assert.equal(stammVerwandt("baumueller-services", "baumueller"), true);
+  });
+
+  /**
+   * Die teure Haelfte der Regel. Ohne die Wortgrenze schlugen im echten
+   * Bestand festo/festool, naber/nabertherm und drei hydro*-Firmen gegen
+   * Hydro Extrusion an — durchweg verschiedene Unternehmen.
+   */
+  test("verwechselt NICHT bloss aehnlich beginnende Namen", () => {
+    assert.equal(stammVerwandt("festool", "festo"), false);
+    assert.equal(stammVerwandt("nabertherm", "naber"), false);
+    assert.equal(stammVerwandt("hydropneu", "hydro"), false);
+    assert.equal(stammVerwandt("teufelberger", "teufel"), false);
+    // Zu kurze Wurzeln taugen nicht als Konzernkennung.
+    assert.equal(stammVerwandt("abc", "abc"), false);
+    assert.equal(stammVerwandt("abc-technik", "abc"), false);
+  });
+
+  test("meldet den Gruppentreffer, entfernt aber niemanden", () => {
+    const mutter = lead("alt", "Scheuch Gruppe", "office@scheuch.com", 0);
+    const tochter = lead("neu", "Scheuch LIGNO GmbH", "office@scheuch-ligno.com", 1);
+    const fremd = lead("frei", "Niehoff", "info@niehoff.de", 2);
+    const storage = new InMemoryStorage();
+    markBounced(storage, ["alt"], new Date().toISOString());
+    const statusMap = loadLeadStatus(storage);
+
+    const funde = konzernVerwandte([tochter, fremd], [mutter, tochter, fremd], statusMap);
+    assert.equal(funde.length, 1);
+    assert.equal(funde[0]?.id, "neu");
+    assert.equal(funde[0]?.verwandtId, "alt");
+    // Der Batch selbst bleibt unangetastet — der Check ist ein Hinweis.
+    assert.equal(funde.every((f) => f.company.length > 0), true);
+  });
+
+  test("ohne kontaktierte Verwandte bleibt der Befund leer", () => {
+    const a = lead("a", "Alpha", "info@alpha.de", 0);
+    const b = lead("b", "Beta", "info@beta.de", 1);
+    assert.deepEqual(konzernVerwandte([a, b], [a, b], loadLeadStatus(new InMemoryStorage())), []);
   });
 });
