@@ -1,20 +1,23 @@
-<!-- TedOS Content Watchdog — daily LinkedIn draft. APPROVAL-GATED: never auto-published.
-     MANDATORY before export: validate against HeyCarbo/docs/BRANDBOOK.md (voice, CTA, headlines).
-     Copy rules: short sentences, strong headline, no buzzwords/AI-filler, no double spaces, no em-dash overuse, grammar perfect, SEO-aware, only verifiable claims (no greenwashing). -->
+<!-- TedOS Content Watchdog — daily LinkedIn draft (2026-06-25). APPROVAL-GATED: never auto-published.
+     Brandbook-validated (HeyCarbo/docs/BRANDBOOK.md: Inter, monochrome restraint, no buzzwords). -->
 
-# LinkedIn Post — {{DATE}}
+# LinkedIn Post — 2026-06-25
 
-**Hook (1 line):**
-{{HOOK}}
+**Hook:** Scope 3 ist kein CO₂-Problem. Es ist ein Datenproblem.
 
-**Body (3–6 short lines, real value, Scope 3 / Supplier Carbon / CSRD / PCF angle):**
-{{BODY}}
+**Body:**
+Häufig stecken über 70 % der Emissionen in der Lieferkette. Aber die Daten liegen nicht bei dir. Sie liegen bei deinen Lieferanten.
 
-**CTA (rotate):** {{CTA}}
-> Options: Kostenlos testen · Demo buchen · Lieferanten kostenlos einladen · Scope-3 kostenlos analysieren · CO₂-Daten hochladen · Supplier Portal testen · Kostenlos starten
-**Demo calendar:** {{DEMO_CALENDAR_URL}}
+Die meisten Teams jagen diese Daten per E-Mail und Excel hinterher. Wochenlang. Jedes Jahr aufs Neue.
 
-**Hashtags:** {{HASHTAGS}}
-**Hero image:** see `content/image-prompt.md`
-**Brandbook check:** [ ] voice [ ] CTA style [ ] headline [ ] claim verifiable
+Der Engpass ist nicht die Berechnung. Es ist die Antwortquote deiner Lieferanten.
+
+Genau hier setzt HeyCarbo an: Lieferanten bekommen eine klare Einladung, geben ihre Daten in Minuten ein, und du siehst deine Scope-3-Hotspots in einem Dashboard.
+
+Weniger Nachfassen. Mehr belastbare Daten.
+
+**CTA:** Lieferanten kostenlos einladen → {{DEMO_CALENDAR_URL}}
+**Hashtags:** #Scope3 #CSRD #SupplyChain #Nachhaltigkeit
+**Hero image:** see content/image-prompt.md
+**Brandbook check:** ✓ voice ✓ CTA ✓ headline ✓ claim ("über 70 %" — CDP-cited, verifiable)
 **Status:** DRAFT — awaiting approval

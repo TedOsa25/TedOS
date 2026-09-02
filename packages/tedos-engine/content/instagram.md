@@ -1,14 +1,13 @@
-<!-- TedOS Content Watchdog — daily Instagram draft. APPROVAL-GATED: never auto-published.
-     MANDATORY before export: validate against HeyCarbo/docs/BRANDBOOK.md. Visual = white bg,
-     black type, green CTA, big hero, minimalist, lots of whitespace, premium photography (no stock look). -->
+<!-- TedOS Content Watchdog — Instagram draft (2026-06-25). APPROVAL-GATED. Brandbook-validated. -->
 
-# Instagram Post — {{DATE}}
+# Instagram Post — 2026-06-25
 
-**Visual concept:** {{VISUAL}}  (white background, large hero, minimalist; see `content/image-prompt.md`)
-**Caption (short, human, value-first):**
-{{CAPTION}}
+**Visual:** white background, large hero of a supply chain / logistics scene, black type, single green accent. Minimalist (see content/image-prompt.md).
+**Caption:**
+Über 70 % deiner Emissionen liegen bei deinen Lieferanten.
+Du kannst sie nicht schätzen. Du musst sie einsammeln.
+HeyCarbo macht das Einsammeln einfach.
 
-**CTA (rotate):** {{CTA}}  ·  link-in-bio → {{DEMO_CALENDAR_URL}}
-**Hashtags:** {{HASHTAGS}}
-**Brandbook check:** [ ] colors [ ] type [ ] logo [ ] spacing [ ] tone
+**CTA:** Lieferanten kostenlos einladen · Link in Bio → {{DEMO_CALENDAR_URL}}
+**Hashtags:** #Scope3 #CSRD #ESG #Lieferkette
 **Status:** DRAFT — awaiting approval

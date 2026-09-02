@@ -1,0 +1,23 @@
+{
+  "source": "security-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "posture": "strong",
+      "cves": "0 vulnerabilities (npm audit) — xlsx patched + audit-fix applied earlier today",
+      "secrets": "no committed .env or live keys. 'sk_live_xxxxx' in ApiReferencePage is a docs placeholder; supabase client uses VITE_SUPABASE_PUBLISHABLE_KEY (anon), NOT service_role — correct.",
+      "owasp": {
+        "injection_xss": "dangerouslySetInnerHTML in GlossarPage/PlattformPage/CSRDLeitfadenPage — but fed ONLY by static const arrays (no fetch/supabase/props). Low actual risk; best-practice finding.",
+        "authz": "Supabase RLS enforced per CLAUDE.md; client uses anon key; edge functions gate writes (not auditable from here)."
+      },
+      "gdpr": "GDPR awareness present (migration 081_gdpr_cron_secret_via_table); EU ESG data → DPA/RLS posture appears considered. Backend edge functions + rate limits NOT auditable from this surface — flag for live/backend review.",
+      "notAuditableHere": ["edge function auth/rate-limits", "RLS policy correctness", "Stripe webhook signature verification"],
+      "goalCandidates": [
+        { "id": "harden-dangeroushtml", "title": "Harden dangerouslySetInnerHTML (sanitize via DOMPurify or render without raw HTML)", "kind": "improvement", "risk": "medium", "severity": "low", "note": "static content today; guard prevents future XSS if dynamic data is ever wired in. Adding DOMPurify = dependency (MEDIUM)." },
+        { "id": "deps-upgrade-majors", "title": "Major dep upgrades (TS6, Vite8, lucide1, pdfjs6) to stay ahead of future CVEs", "kind": "improvement", "risk": "medium", "severity": "low" },
+        { "id": "backend-security-review", "title": "Live review of edge-function auth, rate limits, RLS policies, Stripe webhook signing", "kind": "improvement", "risk": "high", "severity": "medium", "note": "REQUIRES APPROVAL — touches auth/security logic; analysis-only until approved" }
+      ]
+    }
+  ]
+}

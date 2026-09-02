@@ -1,17 +1,12 @@
-<!-- TedOS Content Watchdog — hero image brief. Reuse existing HeyCarbo assets FIRST;
-     only generate new images if none fit, in the IDENTICAL house style. Validate against
-     HeyCarbo/docs/BRANDBOOK.md (image language) before any generation/export. -->
+<!-- TedOS Content Watchdog — hero image brief (2026-06-25). Reuse existing HeyCarbo assets FIRST. -->
 
-# Image Prompt — {{DATE}}
+# Image Prompt — 2026-06-25
 
-**Reuse check:** searched existing assets (frontend/public/assets, landing) → {{REUSE_RESULT}}
+**Reuse check:** search frontend/public/assets + landing hero images for a supply-chain / logistics scene → use if a match exists.
 
-**If generating new (identical style):**
-> White background. Large hero. Modern industry / logistics / supply chain / wind power /
-> factories / people. Minimalist. Black typography. Green CTA accents. Lots of whitespace.
-> High-end photography, NOT stock-photo look. Identical to the landing page & existing posts.
+**If generating new (identical HeyCarbo style):**
+> White background. Large hero. Modern supply chain / logistics / containers / a supplier facility. Minimalist. Black typography space. One green accent. Lots of whitespace. High-end photography, NOT stock-photo look. Identical to the landing page.
 
-**Scene:** {{SCENE}}
-**Aspect:** {{ASPECT}} (LinkedIn 1200×627 / IG 1080×1080 / Story 1080×1920)
-**Brandbook check:** [ ] palette [ ] composition [ ] no-stock-look [ ] logo safe-zone
+**Scene:** a procurement manager reviewing supplier data on a clean dashboard; calm, premium, industrial.
+**Aspect:** LinkedIn 1200×627 · IG 1080×1080 · Story 1080×1920
 **Status:** BRIEF — image not yet produced

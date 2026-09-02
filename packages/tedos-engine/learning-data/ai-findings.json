@@ -1,0 +1,38 @@
+{
+  "source": "ai-watchdog",
+  "project": "HeyCarbo",
+  "mode": "read-only (GoalCandidates only; no implementation)",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "headline": "HeyCarbo's AI stack is OpenAI (not Claude) and is now ~1 generation behind: GPT-4o / GPT-4o-mini were superseded by the GPT-5.4/5.5 family.",
+      "stackReality": {
+        "provider": "OpenAI (raw Deno fetch, no SDK)",
+        "pivotedFromAnthropic": "2026-05-30",
+        "callSites": [
+          { "fn": "copilot/index.ts", "model": "gpt-4o", "type": "interactive chat (Helio Copilot)", "maxTokens": 800, "notes": "German system prompt + up to 6 prior msgs; 20 msg/hr rate limit; ~4-6KB payload" },
+          { "fn": "helio/claude-client.ts (callClaude→gpt-4o)", "model": "gpt-4o", "type": "batch-style agent calls", "maxTokens": 1024, "notes": "name 'claude-client' is legacy; calls OpenAI" },
+          { "fn": "helio/agents/{risk,compliance,reduction,executive}.ts", "model": "gpt-4o", "type": "batch analysis (non-interactive)", "notes": "structured JSON; ~2-4KB each; executive synthesizes the other 3" },
+          { "fn": "extract-document/llm/client.ts", "model": "gpt-4o-mini (EXTRACTOR_MODEL_ID)", "type": "batch invoice/supplier extraction", "notes": "strict json_schema mode, temperature 0, ~5-15KB payload" },
+          { "fn": "classify-emission/index.ts", "model": "gpt-4o", "type": "Layer-4 AI fallback classification", "maxTokens": 200, "notes": "only fires if keyword/merchant/learned layers miss; tiny payload" },
+          { "fn": "generate-csrd-narrative/index.ts", "model": "gpt-4o", "type": "batch CSRD/ESRS narrative", "maxTokens": 8000, "notes": "full dataContext snapshot serialized ~8-30KB" }
+        ]
+      },
+      "evidence": {
+        "stack": { "source": "HeyCarbo code (Explore agent, supabase/functions/**; Deno.env.get(\"OPENAI_API_KEY\"); client.ts pivot comment)", "confidence": "high" },
+        "currency": { "source": "WebSearch 2026-06-25 — openai.com/api/pricing + aggregator pages", "confidence": "medium-high (external pricing pages; verify on openai.com/api/pricing before acting)", "facts": "GPT-4o & GPT-5 no longer listed; succeeded by GPT-5.4/5.5. GPT-4o→GPT-5.4 $2.50 in / $15 out per 1M (cached in $0.25). GPT-5.4-nano $0.20 in / $1.25 out. GPT-5.5 flagship $5/$30 (cached in $0.50). Batch/Flex ~50% off. Prompt-prefix caching ~10% of input rate." }
+      },
+      "goalCandidates": [
+        { "id": "ai-model-currency-gpt54", "title": "Re-evaluate gpt-4o → GPT-5.4 / gpt-4o-mini → GPT-5.4-nano (current generation)", "kind": "ai", "risk": "MEDIUM", "businessImpact": "MED-HIGH — quality + cost; GPT-4o is superseded. GPT-5.4 ≈ gpt-4o capability at similar/better price; nano is cheaper than mini for extraction.", "reason": "Model/API change across 6 edge fns; must re-validate extraction accuracy + Helio answer quality on real benchmark docs before switching. Centralize model IDs (currently per-fn constants).", "action": "approval-queue", "evidenceConfidence": "medium-high (verify live OpenAI pricing/availability)" },
+        { "id": "ai-prompt-caching", "title": "Enable OpenAI prompt caching on large repeated prefixes (CSRD narrative ~30KB, Helio agents, copilot system prompt)", "kind": "ai", "risk": "MEDIUM", "businessImpact": "MED — cached input billed ~10% of input rate; cuts cost + latency on repeated static system prompts/data context.", "reason": "Requires stable prefix ordering in edge-fn request construction; behaviour-neutral but an API/edge change.", "action": "approval-queue", "evidenceConfidence": "high (architecture: large static prefixes confirmed in code)" },
+        { "id": "ai-batch-flex-noninteractive", "title": "Route non-interactive AI calls (CSRD narrative, helio agents, bulk extraction) through OpenAI Batch/Flex (~50% off)", "kind": "ai", "risk": "MEDIUM", "businessImpact": "MED — direct ~50% cost reduction on non-latency-sensitive volume; copilot stays on the sync path.", "reason": "Changes call path + adds async handling for batch jobs; not for the interactive copilot.", "action": "approval-queue", "evidenceConfidence": "medium-high" },
+        { "id": "ai-cost-tiering", "title": "Tier down simple calls (classify-emission max-200-tok, simple helio agents) from gpt-4o to nano/mini", "kind": "ai", "risk": "MEDIUM", "businessImpact": "MED — classify-emission is a tiny fallback classification paying full gpt-4o; nano/mini is 5-12× cheaper input.", "reason": "Per-call model change; validate classification accuracy doesn't regress.", "action": "approval-queue", "evidenceConfidence": "high (call shapes confirmed in code)" },
+        { "id": "ai-dead-anthropic-secret", "title": "Remove dead ANTHROPIC_API_KEY prod secret + correct stale 'Helio needs Anthropic' docs", "kind": "ai", "risk": "HIGH", "businessImpact": "LOW — hygiene/security (unused credential) + doc accuracy.", "reason": "Prod-secret removal = prod infra (HIGH). Docs FULL_AUDIT_REPORT/phase-6.2b-pivot-report/system-audit/CLAUDE.md still claim copilot/Helio needs ANTHROPIC_API_KEY but copilot/index.ts uses gpt-4o now. .env.example already corrected (commit b5ab407). Historical phase docs left intact (don't falsify records); only current-state claims need updating — surfaced for your call.", "action": "approval-queue", "evidenceConfidence": "high" }
+      ],
+      "noActionItems": [
+        "Helio/copilot already on a current-tier general model family (OpenAI) — no provider switch recommended; this is a within-OpenAI currency/cost optimization, not a re-platform.",
+        "extract-document already uses strict json_schema mode (good extraction reliability) — no structured-output gap there."
+      ]
+    }
+  ]
+}

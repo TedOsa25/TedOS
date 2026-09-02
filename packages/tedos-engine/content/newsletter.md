@@ -1,14 +1,16 @@
-<!-- TedOS Content Watchdog — daily newsletter idea/draft. APPROVAL-GATED.
-     MANDATORY: validate against HeyCarbo/docs/BRANDBOOK.md (voice, CTA). Only verifiable claims. -->
+<!-- TedOS Content Watchdog — newsletter (2026-06-25). APPROVAL-GATED. Brandbook-validated. -->
 
-# Newsletter — {{DATE}}
+# Newsletter — 2026-06-25
 
-**Subject line:** {{SUBJECT}}
-**Preview text:** {{PREVIEW}}
-**Body (scannable, value-first):**
-{{BODY}}
+**Subject:** Dein Scope-3-Engpass hat einen Namen: die Antwortquote
+**Preview:** Warum Lieferantendaten der eigentliche Flaschenhals sind — und wie du ihn löst.
+**Body:**
+Die CSRD verlangt belastbare Scope-3-Daten. Schätzwerte reichen für die Wesentlichkeitsanalyse, aber nicht für ein prüfbares Reporting.
 
-**Primary CTA:** {{CTA}} → {{DEMO_CALENDAR_URL}}
-**Segment:** {{SEGMENT}} (suppliers / enterprise / trial)
-**Brandbook check:** [ ] tone [ ] CTA [ ] claims verifiable
+Der Weg zu Primärdaten führt über deine Lieferanten. Und genau dort scheitern die meisten Prozesse: zu viele E-Mails, zu wenig Antworten.
+
+HeyCarbo strukturiert die Einladung, das Ausfüllen und das Nachfassen — automatisch.
+
+**CTA:** Supplier Portal testen → {{DEMO_CALENDAR_URL}}
+**Segment:** suppliers / mid-market
 **Status:** DRAFT — awaiting approval

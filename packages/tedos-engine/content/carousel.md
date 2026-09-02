@@ -1,15 +1,13 @@
-<!-- TedOS Content Watchdog — daily carousel (LinkedIn/Instagram). APPROVAL-GATED.
-     MANDATORY: validate against HeyCarbo/docs/BRANDBOOK.md. Each slide: white bg, black type, green accent. -->
+<!-- TedOS Content Watchdog — carousel (2026-06-25). APPROVAL-GATED. Brandbook-validated. 5 slides. -->
 
-# Carousel — {{DATE}}  ({{N}} slides)
+# Carousel — 2026-06-25 (Scope 3 in 5 Schritten)
 
-1. **Cover headline:** {{SLIDE_1}}
-2. {{SLIDE_2}}
-3. {{SLIDE_3}}
-4. {{SLIDE_4}}
-5. **CTA slide:** {{CTA}} → {{DEMO_CALENDAR_URL}}
+1. **Cover:** Scope 3 ohne Excel-Chaos.
+2. Finde deine Top-Lieferanten nach Ausgaben.
+3. Lade sie mit einem Klick ein.
+4. Sie geben Primärdaten ein — keine Schätzwerte.
+5. **CTA:** Sieh deine Hotspots. Lieferanten kostenlos einladen → {{DEMO_CALENDAR_URL}}
 
-**Topic:** {{TOPIC}} (Scope 3 / CSRD / PCF / Catena-X)
-**Design ref:** existing HeyCarbo carousel template; reuse assets if available.
-**Brandbook check:** [ ] grid/spacing [ ] type scale [ ] color [ ] logo placement
+**Topic:** Scope 3 / Supplier data
+**Design ref:** existing HeyCarbo carousel template; reuse assets.
 **Status:** DRAFT — awaiting approval

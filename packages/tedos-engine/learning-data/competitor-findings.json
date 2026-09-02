@@ -1,0 +1,30 @@
+{
+  "source": "competitor-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "method": "Domain knowledge to Jan 2026; ai/*.md empty stubs; NO live web pull — competitor features/pricing/campaigns need live verification.",
+      "landscape": {
+        "enterpriseSuites": ["Watershed", "Persefoni", "Sweep", "Plan A", "Normative"],
+        "supplierNetwork": ["EcoVadis (ratings incumbent — the one to watch)", "IntegrityNext", "CarbonChain", "Cozero (DE, Scope 3)"],
+        "erpNative": ["SAP Sustainability Footprint Mgmt / Green Ledger", "Microsoft Sustainability Manager"],
+        "ecosystem": ["Catena-X (automotive PCF data exchange) — both opportunity and commoditization threat"]
+      },
+      "heycarboEdge": "SME self-serve + supplier-invite NETWORK + AI primary-data extraction + DE/CSRD/VSME/Catena-X. Differentiate on actual carbon DATA + PCF, NOT supplier ratings (EcoVadis owns ratings).",
+      "threats": [
+        "EcoVadis = dominant supplier-network incumbent → must differentiate on primary data/PCF vs ratings",
+        "SAP/Microsoft embedding sustainability in ERP → enterprise squeeze; SME+network niche is the defensible ground",
+        "Watershed/Sweep moving down-market could compress mid-market",
+        "Catena-X may commoditize PCF exchange → interop is table-stakes, network is the moat"
+      ],
+      "goalCandidates": [
+        { "id": "ecovadis-differentiation", "title": "Positioning + content: primary carbon data & PCF vs EcoVadis ratings", "kind": "feature", "risk": "low", "businessImpact": "growth/strategic — sharpen the wedge vs the network incumbent" },
+        { "id": "competitor-comparison-pages", "title": "SEO comparison pages: HeyCarbo vs Cozero / Plan A / EcoVadis (extend existing vergleich/*)", "kind": "feature", "risk": "medium", "businessImpact": "growth/SEO — high-intent bottom-funnel traffic" },
+        { "id": "ai-extraction-moat", "title": "Double down on AI supplier-data extraction (low-friction vs manual competitors)", "kind": "feature", "risk": "medium", "businessImpact": "customer/supplier — attacks the response-rate bottleneck" },
+        { "id": "catena-x-interop", "title": "Catena-X PCF data-exchange interop (automotive enterprise)", "kind": "feature", "risk": "high", "businessImpact": "enterprise — table-stakes for automotive supply chains" },
+        { "id": "self-serve-plg", "title": "Strengthen self-serve onboarding speed-to-value (vs sales-led suites)", "kind": "feature", "risk": "medium", "businessImpact": "growth/activation" }
+      ]
+    }
+  ]
+}

@@ -1,17 +1,16 @@
-<!-- TedOS Content Watchdog — daily blog idea/outline. APPROVAL-GATED.
-     MANDATORY: validate against HeyCarbo/docs/BRANDBOOK.md. SEO-optimized, only verifiable claims. -->
+<!-- TedOS Content Watchdog — blog outline (2026-06-25). APPROVAL-GATED. SEO-optimized, verifiable claims. -->
 
-# Blog — {{DATE}}
+# Blog — 2026-06-25
 
-**Working title:** {{TITLE}}
-**Target keyword:** {{KEYWORD}}  ·  **Secondary:** {{SECONDARY_KEYWORDS}}
-**Search intent:** {{INTENT}}
+**Working title:** Scope 3 messen: Warum Lieferantendaten der eigentliche Flaschenhals sind
+**Target keyword:** Scope 3 Lieferantendaten  ·  **Secondary:** Scope 3 erfassen, CSRD Lieferkette, Primärdaten
+**Search intent:** informational (Sustainability/ESG manager at an SME)
 **Outline:**
-- {{H2_1}}
-- {{H2_2}}
-- {{H2_3}}
+- Was Scope 3 wirklich umfasst (15 Kategorien, kurz)
+- Warum Schätzwerte für CSRD nicht ausreichen
+- Der Engpass: Antwortquote der Lieferanten
+- Vom Spend-Mapping zur Lieferanten-Einladung
+- Wie ein Supplier Portal die Datenqualität hebt
 
-**Angle:** thought leadership on {{TOPIC}} (Scope 3 / CSRD / ESRS / PCF / Catena-X).
-**CTA:** {{CTA}} → {{DEMO_CALENDAR_URL}}
-**Brandbook check:** [ ] voice [ ] headline style [ ] claims sourced
+**CTA:** Lieferanten kostenlos einladen → {{DEMO_CALENDAR_URL}}
 **Status:** DRAFT — awaiting approval

@@ -1,12 +1,10 @@
-<!-- TedOS Content Watchdog — daily Story (IG/LinkedIn). APPROVAL-GATED.
-     MANDATORY: validate against HeyCarbo/docs/BRANDBOOK.md. -->
+<!-- TedOS Content Watchdog — Story (2026-06-25). APPROVAL-GATED. Brandbook-validated. -->
 
-# Story — {{DATE}}
+# Story — 2026-06-25
 
-**Frame 1 (hook):** {{FRAME_1}}
-**Frame 2 (value):** {{FRAME_2}}
-**Frame 3 (CTA):** {{CTA}} → swipe-up {{DEMO_CALENDAR_URL}}
+**Frame 1 (hook):** Wie viel Prozent deiner Emissionen sind Scope 3?
+**Frame 2 (value):** Oft über 70 %. Und die Daten liegen bei deinen Lieferanten.
+**Frame 3 (CTA):** Scope-3 analysieren → swipe-up {{DEMO_CALENDAR_URL}}
 
 **Visual:** minimalist, white bg, green CTA sticker.
-**Brandbook check:** [ ] colors [ ] type [ ] CTA style
 **Status:** DRAFT — awaiting approval
