@@ -357,19 +357,30 @@ export function campaignFromIndustry(industry: string): string {
   const s = String(industry ?? "").toLowerCase();
   if (/automotive|mobility|fahrzeug|automobil|\bkfz\b/.test(s)) return "catena-x";
   /**
+   * ERZEUGNIS ZUERST — das Suffix schlaegt das Material.
+   *
+   * "Werkzeugmaschinen", "Verpackungsmaschinen" und "Textilmaschinen" trafen
+   * sonst ueber "werkzeug"/"verpackung"/"textil" die Teile-Liste unten, weil
+   * sie frueher geprueft wird. Wer eine MASCHINE baut, liefert aber ein
+   * Erzeugnis, gleich fuer welchen Werkstoff sie gedacht ist. Aufgefallen beim
+   * Pruefen von sechs neuen VDMA-Fachverbaenden am 02.09.2026: drei von sechs
+   * waeren falsch angesprochen worden.
+   */
+  if (/maschinen|anlagen(bau)?\b|maschinenbau|drucktechnik|papiertechnik/.test(s)) return "pcf-anlage";
+  /**
    * TEIL — wird in das Erzeugnis eines anderen verbaut, die Anfrage kommt je
    * Teilenummer. Das ist die urspruengliche Werkstoff-Liste (sie beschrieb
    * genau diese Rolle) plus die Komponentenbauer aus dem VDMA-Bestand:
    * Antriebstechnik, Armaturen, Pumpen, Fluidtechnik, Lager, Praezisions-
-   * werkzeuge.
+   * werkzeuge, Motoren.
    */
-  if (/kunststoff|chemie|polymer|plastic|metall|stahl|aluminium|guss|gieß|giess|keramik|glas|papier|verpackung|gummi|elastomer|elektronik|elektrotechnik|kabel|komponent|oberfläch|beschicht|textil|werkzeug|feinmechanik|antriebstechnik|armaturen|pumpen|fluidtechnik|lager\b|verbindungstechnik|pr[äa]zision|dichtung|feder\b|schrauben/.test(s))
+  if (/kunststoff|chemie|polymer|plastic|metall|stahl|aluminium|guss|gieß|giess|keramik|glas|papier|verpackung|gummi|elastomer|elektronik|elektrotechnik|kabel|komponent|oberfläch|beschicht|textil|werkzeug|feinmechanik|antriebstechnik|armaturen|pumpen|fluidtechnik|lager\b|verbindungstechnik|pr[äa]zision|dichtung|feder\b|schrauben|motoren|antrieb\b|getriebe|w[äa]lzlager/.test(s))
     return "pcf-teil";
   /**
    * ERZEUGNIS — eine Maschine oder Anlage, die der Kunde selbst betreibt. Die
    * Anfrage gilt dem gelieferten Geraet, weil es in dessen Scope 3 landet.
    */
-  if (/maschinen|anlagen|robotik|automation|lufttechnik|f[öo]rdertechnik|hebetechnik|intralogistik|\bkran|landtechnik|verfahrenstechnik|reinigungssystem|montage|holzbearbeitung|drucktechnik|papiertechnik/.test(s))
+  if (/robotik|automation|lufttechnik|f[öo]rdertechnik|hebetechnik|intralogistik|\bkran|landtechnik|verfahrenstechnik|reinigungssystem|montage|holzbearbeitung|drucktechnik|papiertechnik/.test(s))
     return "pcf-anlage";
   return "scope-3";
 }

@@ -335,6 +335,26 @@ describe("campaign fallback from industry", () => {
       assert.equal(selectCampaign(bare(ind)), "pcf-anlage", ind);
   });
 
+  /**
+   * Das Suffix schlaegt das Material — die teuerste Stelle der Regel.
+   *
+   * Die Teile-Liste enthaelt Werkstoffnamen, die zugleich in Maschinennamen
+   * stecken. Wird sie zuerst geprueft, landen Werkzeug-, Verpackungs- und
+   * Textilmaschinen bei "pcf-teil", obwohl sie ein Erzeugnis liefern. Beim
+   * Pruefen von sechs neuen VDMA-Fachverbaenden am 02.09.2026 waeren drei
+   * davon falsch angesprochen worden.
+   */
+  test("Maschinenbauer bleiben Erzeugnis, auch wenn der Name einen Werkstoff traegt", () => {
+    for (const ind of ["Werkzeugmaschinenbau", "Nahrungsmittel- und Verpackungsmaschinen",
+                       "Textilmaschinen", "Baumaschinen und Baustoffanlagen", "Druck- und Papiertechnik"])
+      assert.equal(selectCampaign(bare(ind)), "pcf-anlage", ind);
+  });
+
+  test("der reine Werkstoff bleibt davon unberuehrt", () => {
+    for (const ind of ["Papier", "Verpackung", "Textil", "Kunststoff", "Metall"])
+      assert.equal(selectCampaign(bare(ind)), "pcf-teil", ind);
+  });
+
   test("beide Zweige tragen einen eigenen, nicht-leeren Need-Satz", () => {
     const teil = needLeadHeycarbo("pcf-teil");
     const anlage = needLeadHeycarbo("pcf-anlage");
