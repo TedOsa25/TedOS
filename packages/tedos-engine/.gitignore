@@ -6,3 +6,12 @@
 # Local tooling
 node_modules/
 .playwright-mcp/
+
+# Debug-Artefakte aus Browser-Laeufen (Playwright/MCP) — Screenshots der
+# Login-Masken, entstehen beim Nachstellen von Zustellproblemen.
+*-login.png
+
+# Handbackups vor riskanten Aenderungen. Der Zweck ist die halbe Stunde
+# danach, nicht die Repo-Historie — dafuer gibt es git.
+*.backup-*
+*.bak-vor-*
