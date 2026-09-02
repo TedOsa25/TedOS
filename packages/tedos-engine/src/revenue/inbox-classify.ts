@@ -99,6 +99,14 @@ const ACK_PATTERNS: RegExp[] = [
   /automatisch (erzeugt|generiert)/i,
   /this is an automated/i,
   /ticket(nummer|-nr)/i,
+  // Am 01.09.2026 nachgetragen. BITO und Kneipp standen seit Juli als
+  // "replied" im Bestand und damit in der Antwortquote — beide Mails waren
+  // reine Eingangsbestaetigungen, nur anders formuliert als die schon
+  // erfassten. Die Quote war dadurch fast doppelt so hoch wie die Realitaet.
+  /(nachricht|anfrage|e-?mail|mail) ist (bei uns )?eingegangen/i,   // BITO
+  /haben ihre (nachricht|anfrage|e-?mail).{0,30}(aufgenommen|erhalten)/i,  // Kneipp
+  /an (die|den) zust[äa]ndige[nrs]{0,2} (abteilung|mitarbeiter|bereich|kolleg|stelle)/i,
+  /wir werden diese umgehend bearbeiten/i,
 ];
 
 /** True, wenn die Nachricht eine maschinelle Eingangsbestätigung ist. */

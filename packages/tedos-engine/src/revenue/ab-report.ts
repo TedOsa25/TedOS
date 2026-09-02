@@ -24,7 +24,15 @@ function zaehle(records: LeadRecord[], key: (r: LeadRecord) => string): Map<stri
   for (const r of records) {
     const k = key(r);
     const a = m.get(k) ?? leer();
-    if (r.status === "bounced") a.bounced += 1;
+    // `antwort_am` VOR dem Status pruefen: wer geantwortet hat, ist fuer die
+    // Messung eine Antwort — auch wenn der Trichterstatus inzwischen `lost`
+    // lautet. Genau das ist am 25.08.2026 passiert: HCH095 (SK Schmidt) sagte
+    // ab, wurde korrekt auf `lost` gesetzt und verschwand damit aus der
+    // Statistik. Eine Absage ist aber ein BELEG, dass die Mail gelesen und
+    // beantwortet wurde — fuer den Betreff-Test die wertvollste Sorte Signal
+    // nach einer Zusage. Trichter und Messung duerfen hier auseinandergehen.
+    if (r.antwort_am) a.replied += 1;
+    else if (r.status === "bounced") a.bounced += 1;
     else if (r.status === "replied") a.replied += 1;
     else if (r.status === "demo-booked") a.demo += 1;
     else a.sent += 1;
