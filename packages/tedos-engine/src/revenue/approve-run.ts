@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 
 import { createStorage } from "./../storage.js";
 import { loadAccounts } from "./accounts.js";
-import { loadLeadStatus, approveLeads } from "./batch-send.js";
+import { loadLeadStatus, approveLeads, contactedAddresses } from "./batch-send.js";
 import { selectForApproval, isPersonalized } from "./approve-select.js";
 
 const N = Number(process.env.REVENUE_APPROVE_N ?? 20);
@@ -30,6 +30,15 @@ function main(): void {
   }
   const storage = createStorage();
   let accounts = loadAccounts();
+  /**
+   * VOR der Whitelist bilden — und zwar aus dem vollen CRM.
+   *
+   * Die bereits angeschriebene Zwilling-Id steht in aller Regel nicht im
+   * Versandpool (sie ist ja erledigt). Wuerde die Menge erst aus `accounts`
+   * nach der Filterung gebaut, faende sie genau die Faelle nicht, die sie
+   * finden soll.
+   */
+  const verbrannt = contactedAddresses(accounts, loadLeadStatus(storage));
   // Die REIHENFOLGE der Datei ist Teil der Aussage, nicht nur die Menge:
   // lookalike.mjs sortiert den Pool nach Aehnlichkeit zu den 41 belegten
   // Kaeufern. Sie wird deshalb mitgegeben statt weggeworfen.
@@ -43,11 +52,11 @@ function main(): void {
     console.log(`Whitelist: ${IDS_FILE} → ${ids.size} IDs · CRM ${before} → ${accounts.length} Kandidaten`);
     console.log(`Rangfolge: aus der Pool-Datei (nicht fitScore — der ist antikorreliert zur einzigen Demo)`);
   }
-  const sel = selectForApproval(accounts, loadLeadStatus(storage), N, reihenfolge);
+  const sel = selectForApproval(accounts, loadLeadStatus(storage), N, reihenfolge, verbrannt);
 
   console.log(`Approval-Lauf (gehärteter Filter) · Ziel: ${N} · Modus: ${APPLY ? "APPLY" : "Vorschau"}`);
   console.log(`Eligible: ${sel.eligible} · personalisiert im Pick: ${sel.personalizedInPick}/${sel.pick.length}`);
-  console.log(`Abgelehnt: ${sel.rejected.status} kontaktiert/entschieden · ${sel.rejected.noEmail} ohne Adresse · ${sel.rejected.dataQuality} Datenqualität · ${sel.rejected.duplicate} Dubletten · ${sel.rejected.domainMismatch} Domain-Mismatch · ${sel.rejected.zuGross} zu groß`);
+  console.log(`Abgelehnt: ${sel.rejected.status} kontaktiert/entschieden · ${sel.rejected.noEmail} ohne Adresse · ${sel.rejected.dataQuality} Datenqualität · ${sel.rejected.duplicate} Dubletten · ${sel.rejected.domainMismatch} Domain-Mismatch · ${sel.rejected.zuGross} zu groß · ${sel.rejected.bereitsKontaktiert} Adresse bereits kontaktiert`);
   console.log("\n── Auswahl ─────────────────────────────────────────────────");
   sel.pick.forEach((a, i) => {
     console.log(`${String(i + 1).padStart(3)}. ${a.company} · ${a.industry} · fit=${a.fitScore} · ${a.email}${isPersonalized(a.email as string) ? "  [pers]" : ""}`);

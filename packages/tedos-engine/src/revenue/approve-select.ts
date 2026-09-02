@@ -153,7 +153,7 @@ export function istZustellbar(email: string): boolean {
 export interface ApprovalSelection {
   pick: Account[];
   eligible: number;
-  rejected: { status: number; noEmail: number; dataQuality: number; duplicate: number; domainMismatch: number; zuGross: number };
+  rejected: { status: number; noEmail: number; dataQuality: number; duplicate: number; domainMismatch: number; zuGross: number; bereitsKontaktiert: number };
   personalizedInPick: number;
 }
 
@@ -167,8 +167,31 @@ export function selectForApproval(
   limit: number,
   /** Vorrangige Reihenfolge (IDs aus dem Versandpool). Leer = wie bisher nach fitScore. */
   order?: string[],
+  /**
+   * Adressen, die ein FRUEHERER Batch schon erreicht hat — ueber ALLE Lead-Ids
+   * hinweg, nicht nur ueber die hier uebergebenen Kandidaten.
+   *
+   * Ohne sie prueft der Statusfilter oben nur den Status der EIGENEN Id. Sitzt
+   * dieselbe Firma unter einer zweiten Id im CRM — bei einem Massenimport der
+   * Regelfall, nicht die Ausnahme — wird die zweite Id freigegeben, obwohl das
+   * Postfach laengst angeschrieben ist. `contactedAddresses()` in batch-send.ts
+   * faengt das ab, aber erst im Preflight: die Freigabe ist da schon erteilt und
+   * der Batch schrumpft still von 20 auf 19.
+   *
+   * Genau so ist es am 02.09.2026 passiert. Der VDMA-Messe-Import vom 31.08.
+   * brachte 20 solcher Zweitschriften mit (Jungheinrich Degernpoint mit der
+   * Konzernadresse info@jungheinrich.de, die am 06.07. schon an Jungheinrich AG
+   * ging; August Beck mit info@mapal.com, das schon an MAPAL ging). Der
+   * Approval-Lauf meldete dazu "0 Dubletten" — er verglich die Kandidaten nur
+   * untereinander.
+   *
+   * Der Aufrufer muss die Menge aus dem VOLLEN CRM bauen, vor jeder
+   * Whitelist-Filterung: die bereits kontaktierte Zwilling-Id steht typischer-
+   * weise gar nicht im Versandpool.
+   */
+  bereitsKontaktiert: Set<string> = new Set(),
 ): ApprovalSelection {
-  const rejected = { status: 0, noEmail: 0, dataQuality: 0, duplicate: 0, domainMismatch: 0, zuGross: 0 };
+  const rejected = { status: 0, noEmail: 0, dataQuality: 0, duplicate: 0, domainMismatch: 0, zuGross: 0, bereitsKontaktiert: 0 };
   const seen = new Set<string>();
   const eligible: Account[] = [];
 
@@ -205,6 +228,11 @@ export function selectForApproval(
     if (mitarbeitende !== null && mitarbeitende > MAX_MITARBEITENDE) { rejected.zuGross += 1; continue; }
     if (istGrosskonzern(email)) { rejected.zuGross += 1; continue; }
     const key = email.toLowerCase();
+    // Getrennt von `duplicate` gezaehlt, wie im Preflight (dupDropped vs.
+    // contactedDropped): "zwei Kandidaten teilen eine Adresse" und "die Adresse
+    // ist verbrannt" sind verschiedene Befunde und fuehren zu verschiedenen
+    // Aufraeumarbeiten.
+    if (bereitsKontaktiert.has(key)) { rejected.bereitsKontaktiert += 1; continue; }
     if (seen.has(key)) { rejected.duplicate += 1; continue; }
     if (!domainMatches(email, a.website, a.company)) { rejected.domainMismatch += 1; continue; }
     seen.add(key);

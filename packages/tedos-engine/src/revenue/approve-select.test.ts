@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 import { InMemoryStorage } from "./../storage.js";
 import { normalize, type Account } from "./accounts.js";
-import { loadLeadStatus, approveLeads } from "./batch-send.js";
+import { loadLeadStatus, approveLeads, contactedAddresses, markBounced } from "./batch-send.js";
 import { selectForApproval, domainMatches, isPersonalized, istZustellbar } from "./approve-select.js";
 
 function acct(id: string, company: string, email: string, website: string | undefined, i: number): Account {
@@ -87,6 +87,40 @@ describe("selectForApproval", () => {
     assert.equal(sel.rejected.domainMismatch, 1);
     assert.equal(sel.rejected.duplicate, 1);
     assert.equal(sel.rejected.noEmail, 1);
+  });
+
+  /**
+   * Der Fall vom 02.09.2026: derselbe Empfaenger unter ZWEI Lead-Ids.
+   *
+   * Der Statusfilter oben sieht nur den Status der eigenen Id — die zweite Id
+   * ist frisch und laeuft durch. Erst der Preflight faengt sie ab, da ist die
+   * Freigabe aber schon erteilt und der Batch schrumpft still unter das
+   * angeforderte N. Der VDMA-Messe-Import brachte 20 solcher Zweitschriften mit.
+   *
+   * Hier mit einer GEBOUNCTEN Adresse, weil das der teuerste der 20 Faelle war:
+   * info@jdngroup.com hatte unter HCH866 schon hart gebounct, und HCM102 haette
+   * dasselbe Postfach ein zweites Mal angesteuert.
+   */
+  test("weist eine Adresse ab, die unter einer ANDEREN Lead-Id schon kontaktiert wurde", () => {
+    const alt = acct("alt", "J. D. Neuhaus", "info@jdngroup.com", "jdngroup.com", 0);
+    const zweitschrift = acct("neu", "J. D. NEUHAUS GmbH & Co. KG", "info@jdngroup.com", "jdngroup.com", 1);
+    const frei = acct("frei", "Niehoff", "info@niehoff.de", "niehoff.de", 2);
+    const storage = new InMemoryStorage();
+    markBounced(storage, ["alt"], new Date().toISOString());
+
+    const statusMap = loadLeadStatus(storage);
+    const verbrannt = contactedAddresses([alt, zweitschrift, frei], statusMap);
+
+    // Ohne die Menge: die zweite Id wird freigegeben — das alte Verhalten.
+    const ohne = selectForApproval([zweitschrift, frei], statusMap, 10);
+    assert.deepEqual(ohne.pick.map((a) => a.id).sort(), ["frei", "neu"]);
+    assert.equal(ohne.rejected.bereitsKontaktiert, 0);
+
+    // Mit ihr faellt sie hier statt erst im Preflight.
+    const mit = selectForApproval([zweitschrift, frei], statusMap, 10, [], verbrannt);
+    assert.deepEqual(mit.pick.map((a) => a.id), ["frei"]);
+    assert.equal(mit.rejected.bereitsKontaktiert, 1);
+    assert.equal(mit.rejected.duplicate, 0, "getrennt von der Dubletten-Zaehlung im Lauf");
   });
 
   test("skips leads already approved/sent", () => {
