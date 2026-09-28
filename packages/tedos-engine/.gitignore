@@ -5,6 +5,7 @@
 
 # Local tooling
 node_modules/
+.npm-cache/
 .playwright-mcp/
 
 # Debug-Artefakte aus Browser-Laeufen (Playwright/MCP) — Screenshots der
