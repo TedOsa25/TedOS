@@ -107,9 +107,10 @@ async function main() {
     secure, // 465 → TLS from start
     requireTLS: !secure, // 587 → STARTTLS is mandatory (fail rather than send in clear)
     auth: { user: process.env.SMTP_USER as string, pass: process.env.SMTP_PASS as string },
-    pool: false, // no connection pool
-    maxConnections: 1,
-    maxMessages: 1, // at most one message per connection
+    // No `pool`/`maxConnections`/`maxMessages` here: those are SMTPPool-only options and
+    // no-ops on a plain (non-pooled) transport, which is what this always creates —
+    // every sendMail() call already opens its own connection and closes it after.
+    // The single-send guarantee comes from the `sends` counter below, not from SMTP options.
     connectionTimeout: 15000,
     greetingTimeout: 10000,
     socketTimeout: 20000,
