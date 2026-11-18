@@ -76,7 +76,8 @@
     "test:followup": "tsx src/revenue/followup.test.ts",
     "unsubscribe:sync": "tsx src/revenue/unsubscribe-sync.ts",
     "test:list-unsubscribe": "tsx src/revenue/list-unsubscribe.test.ts",
-    "test:inbox-classify": "tsx src/revenue/inbox-classify.test.ts"
+    "test:inbox-classify": "tsx src/revenue/inbox-classify.test.ts",
+    "sales:shadow": "node --import tsx src/sales/run.ts"
   },
   "keywords": [],
   "author": "",
