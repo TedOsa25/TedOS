@@ -326,3 +326,24 @@ test("demo request in the exact live format (noreply@, via hallo@) → exactly o
   s.ingest([probe as SalesEvent], h(2));
   assert.equal(open(s).length, 1);
 });
+
+test("origin lines (Herkunft/Kampagne/Referrer) from app notifications → source + stated origin", () => {
+  const demo = parseDemoRequest({
+    messageId: "o1", from: "noreply@heyaudit.de", subject: "Neue Demo-Anfrage — HeyAudit (Funkel)", date: "2026-11-19T09:00:00Z",
+    text: "Neue Demo-Anfrage über das Website-Formular.\n\nName:       A B\nFirma:      Funkel\nE-Mail:     a@funkel.de\nTelefon:    0171 1\nQuelle:     hero_demo\nHerkunft:   chatgpt\nKampagne:   —\nReferrer:   chatgpt.com\n\n(keine Nachricht)\n\nDB-ID:      o-1\n\n— HeyAudit",
+  });
+  assert.equal(demo?.source, "chatgpt.com");
+  assert.equal(demo?.statedOrigin, "chatgpt");
+  assert.equal(demo?.campaign, "cta:hero_demo");
+  const reg = parseRegistration({ ...REG_MAIL, text: REG_MAIL.text.replace("Kampagne: chatgpt.com\n", "Kampagne: google / dienstplan\nHerkunft: empfehlung\n") });
+  assert.equal(reg?.source, "google");
+  assert.equal(reg?.campaign, "dienstplan");
+  assert.equal(reg?.statedOrigin, "empfehlung");
+  const none = parseDemoRequest({ ...demoMailNoOrigin() });
+  assert.equal(none?.source, "unbekannt");
+});
+
+function demoMailNoOrigin(): RawMail {
+  return { messageId: "o2", from: "noreply@heyaudit.de", subject: "Neue Demo-Anfrage — HeyAudit (X)", date: "2026-11-19T09:00:00Z",
+    text: "Neue Demo-Anfrage über das Website-Formular.\n\nFirma: X\nE-Mail: x@x-reinigung.de\nTelefon: 0171 2\nQuelle: modal\n\nDB-ID: o-2\n\n— HeyAudit" };
+}

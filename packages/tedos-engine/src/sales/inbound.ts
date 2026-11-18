@@ -56,6 +56,23 @@ function sourceFromCampaign(k: string | undefined): { source?: string; campaign?
   return { ...(src ? { source: src } : {}), ...(camp ? { campaign: camp } : {}) };
 }
 
+/**
+ * Origin lines of the app notifications (since 18.11.2026): "Kampagne:"
+ * (utm_source / utm_campaign), "Herkunft:" (self-reported, fixed keys) and
+ * "Referrer:" (external referring host). UTM wins as source; the referrer is
+ * the fallback; the self-report is kept as statedOrigin.
+ */
+function originFields(text: string): Pick<SalesEvent, "source" | "campaign" | "statedOrigin"> {
+  const camp = sourceFromCampaign(field(text, "Kampagne"));
+  const stated = field(text, "Herkunft")?.toLowerCase().replace(/[^a-z0-9.-]/g, "").slice(0, 40);
+  const ref = field(text, "Referrer")?.toLowerCase().match(/^[a-z0-9.-]{1,100}$/)?.[0];
+  return {
+    ...(camp.source ? { source: camp.source } : ref ? { source: ref } : {}),
+    ...(camp.campaign ? { campaign: camp.campaign } : {}),
+    ...(stated ? { statedOrigin: stated } : {}),
+  };
+}
+
 export function parseRegistration(m: RawMail): SalesEvent | undefined {
   if (!OWN_SENDER.test(m.from)) return undefined;
   const signup = /^Neue Registrierung:/i.test(m.subject);
@@ -67,7 +84,7 @@ export function parseRegistration(m: RawMail): SalesEvent | undefined {
   const person = field(m.text, "Name");
   const phone = field(m.text, "Telefon");
   const note = ["Branche", "Größe", "Tarif"].map((l) => (field(m.text, l) ? `${l}: ${field(m.text, l)}` : "")).filter(Boolean).join("\n");
-  const camp = sourceFromCampaign(field(m.text, "Kampagne"));
+  const camp = originFields(m.text);
   const e: SalesEvent = {
     // Keyed by person, not by mail id: a re-sent notification is the same fact.
     id: `${signup ? "signup" : "profil"}-mail:${email}`,
@@ -102,7 +119,7 @@ export function parseDemoRequest(m: RawMail): SalesEvent | undefined {
     message ? `Nachricht: ${message}` : "",
   ].filter(Boolean).join("\n");
   const cta = field(m.text, "Quelle");
-  return {
+  const ev: SalesEvent = {
     id: dbId && !/^—/.test(dbId) ? `demo-request:${dbId}` : `gmail:${m.messageId}`,
     kind: "inquiry",
     at: m.date,
@@ -113,9 +130,11 @@ export function parseDemoRequest(m: RawMail): SalesEvent | undefined {
     ...(phone ? { phone } : {}),
     ...(note ? { note } : {}),
     // The CTA key is a page position, not a marketing source → keep it as detail.
-    source: "unbekannt",
     ...(cta ? { campaign: `cta:${cta}` } : {}),
+    ...originFields(m.text),
   };
+  if (!ev.source) ev.source = "unbekannt";
+  return ev;
 }
 
 // ── calendar (ICS) ────────────────────────────────────────────────────────
