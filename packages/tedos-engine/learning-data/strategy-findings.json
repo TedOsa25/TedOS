@@ -1,0 +1,35 @@
+{
+  "source": "strategy-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "strategyScore": 74,
+      "method": "Grounded in README/CLAUDE.md positioning + ESG-market domain knowledge (to Jan 2026). NOTE: HeyCarbo/ai/*.md (roadmap/features/competitors/customers/decisions) are EMPTY stubs, and no live web pull this run — competitor/regulation specifics need live verification.",
+      "thesis": "The strategic moat is the SUPPLIER NETWORK, not single-company carbon accounting. Each invited supplier expands the data graph and is a potential customer (their own Scope 3) → network effects that point tools (Plan A, Normative) and enterprise suites (Watershed, Sweep, Persefoni) lack.",
+      "opportunities": [
+        { "id": "supplier-invite-flywheel", "title": "Viral supplier→customer invite loop (free lightweight supplier account → upsell)", "customerValue": 7, "enterpriseValue": 6, "supplierValue": 8, "revenueImpact": 9, "strategicImpact": 10, "implementationEffort": 7, "note": "core flywheel; needs the social/connector + invite analytics" },
+        { "id": "ai-supplier-extraction", "title": "AI extraction for supplier invoices/PCF → cut the #1 bottleneck (response rate)", "customerValue": 8, "enterpriseValue": 6, "supplierValue": 9, "revenueImpact": 6, "strategicImpact": 8, "implementationEffort": 5, "note": "extend existing pdfInvoiceParser/factorMatcher" },
+        { "id": "catena-x-readiness", "title": "Catena-X interop for automotive/manufacturing supply chains", "customerValue": 5, "enterpriseValue": 9, "supplierValue": 6, "revenueImpact": 7, "strategicImpact": 8, "implementationEffort": 8 },
+        { "id": "pcf-requests-network", "title": "Product Carbon Footprint requests across the supplier network (CBAM/customer demand)", "customerValue": 6, "enterpriseValue": 9, "supplierValue": 7, "revenueImpact": 7, "strategicImpact": 8, "implementationEffort": 7 },
+        { "id": "network-benchmarks", "title": "Anonymized network benchmarks (wire up the existing, unwired climate-benchmark module)", "customerValue": 7, "enterpriseValue": 6, "supplierValue": 4, "revenueImpact": 5, "strategicImpact": 8, "implementationEffort": 4, "note": "data-network moat; module already built but not wired" },
+        { "id": "vsme-csrd-onramp", "title": "VSME / CSRD-omnibus SME on-ramp templates", "customerValue": 8, "enterpriseValue": 5, "supplierValue": 5, "revenueImpact": 6, "strategicImpact": 7, "implementationEffort": 3, "note": "VERIFY regulation status live (omnibus/VSME as of 2026)" },
+        { "id": "supplier-self-serve-onboarding", "title": "Reduce invited-supplier time-to-first-value (activation)", "customerValue": 6, "enterpriseValue": 5, "supplierValue": 8, "revenueImpact": 5, "strategicImpact": 7, "implementationEffort": 5 }
+      ],
+      "productRisks": [
+        "Supplier RESPONSE-RATE dependency — the whole network model collapses if invited suppliers don't submit; mitigate via AI extraction + low-friction portal.",
+        "Positioning tension: SME self-serve vs enterprise (Watershed/Persefoni) — focus risk.",
+        "Security: open HIGH xlsx vuln on the supplier data-import path undermines enterprise trust (see sec-xlsx-replace).",
+        "Regulatory whiplash: CSRD omnibus simplification may cut mandatory demand; VSME voluntary uptake uncertain (verify live).",
+        "Unwired feature debt: decarb-simulator/climate-benchmark/data-lineage/product-hotspot built but not shipped → decide ship vs retire (focus + value)."
+      ],
+      "goalCandidates": [
+        { "id": "supplier-invite-flywheel", "title": "Build the viral supplier→customer invite loop", "kind": "feature", "risk": "high" },
+        { "id": "ai-supplier-extraction", "title": "AI extraction to lift supplier response rate", "kind": "feature", "risk": "medium" },
+        { "id": "network-benchmarks", "title": "Wire up anonymized network benchmarks (existing module)", "kind": "feature", "risk": "medium" },
+        { "id": "vsme-csrd-onramp", "title": "VSME/CSRD SME on-ramp templates (verify regs)", "kind": "feature", "risk": "medium" },
+        { "id": "ai-knowledge-files", "title": "Populate HeyCarbo/ai/*.md (roadmap/features/competitors/customers) — empty stubs block strategy precision", "kind": "improvement", "risk": "low" }
+      ]
+    }
+  ]
+}

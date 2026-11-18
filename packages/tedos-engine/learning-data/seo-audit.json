@@ -1,0 +1,30 @@
+{
+  "source": "growth-watchdog/seo-audit",
+  "project": "HeyCarbo",
+  "date": "2026-06-25",
+  "routeClassification": {
+    "public": "~50 marketing/feature/tool/knowledge/legal routes",
+    "auth_app": "dashboard, emissions, suppliers (portal), reports, settings/*, admin, processing, wizard — EXCLUDED from SEO",
+    "authFlow": "login/signup/forgot/reset/auth-callback — excluded"
+  },
+  "keyFinding": "The earlier '41 pages missing SEO' was a FALSE signal from grepping <SEO> in page files. Most public pages render SEO via SHARED LAYOUTS: ComplianceSubpage already renders <SEO> (PCF/VSME/EcoVadis/ISO/etc. are fully covered). The real gap was SubpageLayout (imperative title+description, no og/canonical/twitter).",
+  "implemented": { "goalId": "seo-coverage-public-pages", "change": "SubpageLayout now renders <SEO> → og/twitter added to 38 pages", "commit": "be2f55d", "risk": "shared-component, faithful, validated (133 tests/build); browser spot-check recommended before merge" },
+  "remainingGaps": "A few standalone, LOW-intent public pages may still lack SEO (Security/Status/Careers/Newsroom/Docs/ApiReference/BlogDetail) — lower business value; verify each isn't covered by a layout before adding.",
+  "goalCandidates": [
+    { "id": "cmp-heycarbo-vs-ecovadis", "title": "Comparison page: HeyCarbo vs EcoVadis (primary carbon DATA + PCF vs ratings)", "kind": "feature", "risk": "medium", "businessImpact": "HIGH — high-intent bottom-funnel; must be factual, verifiable, HeyCarbo-strengths-based, no misleading claims", "needsApproval": true },
+    { "id": "cmp-heycarbo-vs-cozero", "title": "Comparison page: HeyCarbo vs Cozero", "kind": "feature", "risk": "medium", "businessImpact": "MEDIUM-HIGH", "needsApproval": true },
+    { "id": "cmp-heycarbo-vs-normative", "title": "Comparison page: HeyCarbo vs Normative", "kind": "feature", "risk": "medium", "businessImpact": "MEDIUM", "needsApproval": true },
+    { "id": "cmp-heycarbo-vs-sweep", "title": "Comparison page: HeyCarbo vs Sweep", "kind": "feature", "risk": "medium", "businessImpact": "MEDIUM", "needsApproval": true },
+    { "id": "supplier-landing-page", "title": "Create a public Supplier landing page (none exists) — supplier acquisition + invite flywheel SEO", "kind": "feature", "risk": "medium", "businessImpact": "HIGH — supplier growth + network effect", "needsApproval": true },
+    { "id": "landing-dual-cta", "title": "Add self-serve 'Kostenlos testen' CTA beside 'Demo buchen' on landing", "kind": "feature", "risk": "medium", "businessImpact": "HIGH — conversion", "effort": "S" },
+    { "id": "seo-subpagelayout-followup", "title": "Add path/canonical + structured keywords to SubpageLayout pages where routes are known", "kind": "improvement", "risk": "low", "businessImpact": "MEDIUM — canonical + keywords" }
+  ],
+  "analyticsChecklist": {
+    "note": "No analytics connectors configured. Concrete setup needed (no placeholders):",
+    "googleSearchConsole": { "api": "Search Console API v1 (searchanalytics.query)", "auth": "Google service account (JSON key) OR OAuth2; verify heycarbo.com property", "env": ["GSC_SERVICE_ACCOUNT_JSON", "GSC_SITE_URL=https://heycarbo.com"], "scopes": ["https://www.googleapis.com/auth/webmasters.readonly"] },
+    "ga4": { "api": "Google Analytics Data API v1 (runReport)", "auth": "service account with GA4 property Viewer", "env": ["GA4_PROPERTY_ID", "GA4_SERVICE_ACCOUNT_JSON"] },
+    "crm": { "need": "lead/demo/pipeline source", "env": ["CRM_API_BASE", "CRM_API_KEY"], "note": "or reuse /Sales data exports" },
+    "stripe": { "api": "Stripe API (subscriptions, checkout sessions)", "env": ["STRIPE_SECRET_KEY (server-side only)"], "use": "trial→paid conversion, MRR" },
+    "productData": { "need": "trial signups, demo bookings, supplier registrations — from Supabase tables", "env": ["SUPABASE_SERVICE_ROLE (server/edge only, never client)"], "tables": ["profiles", "suppliers", "demo_requests"] }
+  }
+}

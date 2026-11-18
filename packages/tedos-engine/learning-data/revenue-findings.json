@@ -1,0 +1,23 @@
+{
+  "source": "revenue-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "question": "Which ONE change brings the most additional revenue?",
+      "method": "Code-level (SignupPage, PricingPage). Live conversion RATES need GA4/CRM (not connected) — see connectors-setup.md.",
+      "observations": [
+        "Signup form: first name, last name, company, email, password + AGB + AVV checkboxes — moderately heavy; every required field costs completion.",
+        "No social login (Google OAuth) on signup — a major friction lever for trial conversion.",
+        "Pricing: 129€ Starter + mid + Enterprise (demo). CTA '7 Tage kostenlos testen'.",
+        "TRIAL-LENGTH INCONSISTENCY: README/landing reference a 14-day trial; pricing CTA says '7 Tage' — mismatched promise hurts trust/conversion."
+      ],
+      "goalCandidates": [
+        { "id": "signup-social-login", "title": "Add Google sign-up (OAuth) to cut signup friction", "kind": "feature", "risk": "high", "revenueImpact": "HIGH — top trial-conversion lever", "note": "AUTH change → HIGH risk, approval-required, analysis-only" },
+        { "id": "signup-fewer-fields", "title": "Reduce required signup fields (defer last-name/company to post-signup)", "kind": "improvement", "risk": "medium", "revenueImpact": "HIGH — fewer fields = higher completion" },
+        { "id": "trial-length-consistency", "title": "Align trial length across landing/README/pricing (7 vs 14 days)", "kind": "improvement", "risk": "medium", "revenueImpact": "MEDIUM — trust/clarity; needs product decision on the correct value" },
+        { "id": "pricing-experiment", "title": "Pricing/packaging analysis (Starter→Pro upsell, annual plans)", "kind": "improvement", "risk": "high", "revenueImpact": "HIGH — but NEVER auto-change pricing; approval-required" }
+      ]
+    }
+  ]
+}

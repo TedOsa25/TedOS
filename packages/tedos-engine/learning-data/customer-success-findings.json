@@ -1,0 +1,22 @@
+{
+  "source": "customer-success-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "method": "Product-knowledge + QA report (onboarding: Import / Guided / Sandbox paths exist; tooltip tours). NO live support-ticket/feedback/CRM data — mark data-gated.",
+      "observations": [
+        "Onboarding has 3 paths + tooltip tours (per QA report) — solid; activation METRICS need a data source.",
+        "Public FAQ page exists; help-center depth not measurable from here.",
+        "Churn / activation / feature-request signals require live product analytics + support inbox (not connected)."
+      ],
+      "goalCandidates": [
+        { "id": "cs-activation-instrumentation", "title": "Instrument activation funnel (first carbon balance < 15 min target) to find drop-off", "kind": "improvement", "risk": "medium", "customerImpact": "HIGH — activation drives retention; needs analytics" },
+        { "id": "cs-help-center-faq-expansion", "title": "Expand Help Center / FAQ from real support questions (Scope-3, CSRD, supplier upload)", "kind": "feature", "risk": "low", "customerImpact": "MEDIUM — deflects tickets, aids self-serve; needs ticket data" },
+        { "id": "cs-supplier-activation-nudges", "title": "Supplier activation nudges (reminders/follow-ups for invited suppliers)", "kind": "feature", "risk": "medium", "customerImpact": "HIGH — lifts response rate (the core bottleneck)" },
+        { "id": "cs-feedback-capture", "title": "In-app feedback + NPS capture to feed the watchdog", "kind": "feature", "risk": "medium", "customerImpact": "MEDIUM — creates the data loop CS currently lacks" }
+      ],
+      "dataGated": ["support tickets", "NPS/feedback", "churn", "activation rates", "feature requests"]
+    }
+  ]
+}

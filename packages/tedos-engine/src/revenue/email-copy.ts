@@ -1,0 +1,493 @@
+// Email COPY generation for the Revenue Engine — short, modern, conversion-first.
+//
+// The engine produces only the personalized text (greeting · intro · value ·
+// closing). Everything below (banner · CTA · demo link · signature) is the fixed
+// central template. Copy is generated in five tones (A–E); the default that ships
+// in every email is DEFAULT_VARIANT. All text is derived ONLY from the account's
+// REAL fields (company, OEMs/customers, certifications, pain points) — no invented
+// facts, no marketing fluff. Each paragraph stays ≤ 3 lines.
+
+import type { Account } from "./accounts.js";
+import { assignFollowUpArm, followUpConfig } from "./experiment.js";
+
+/** Copy tones. A: sehr kurz · B: beratend · C: problem · D: ROI · E: persönlich. */
+export type Variant = "A" | "B" | "C" | "D" | "E";
+
+export const VARIANTS: Variant[] = ["A", "B", "C", "D", "E"];
+
+export const VARIANT_LABEL: Record<Variant, string> = {
+  A: "sehr kurz",
+  B: "beratend",
+  C: "problemorientiert",
+  D: "ROI-orientiert",
+  E: "persönlich / dialogorientiert",
+};
+
+/**
+ * The variant that ships as the default in every generated email. Chosen for the
+ * highest expected overall conversion in cold B2B outreach (reply-driven): short,
+ * personal, one low-friction ask. See docs/email-variants-analysis.md.
+ */
+export const DEFAULT_VARIANT: Variant = "E";
+
+/** The four personalized paragraphs (the only per-account generated text). */
+export interface EmailCopy {
+  greeting: string; // always "Guten Tag,"
+  intro: string; // company + OEMs (+ pain), from real data
+  value: string; // what HeyCarbo does, in one tight paragraph
+  closing: string; // a short, low-pressure ask
+}
+
+const GREETING = "Guten Tag,";
+
+/** Named OEMs from the real supplier-pressure signal (up to 3), properly cased. */
+const OEM_RE = /\b(BMW|VW|Volkswagen|Daimler|Mercedes|Audi|Porsche|Bosch|ZF|Continental|Stellantis|Ford|Toyota|Renault|Volvo|Tesla|Magna|Valeo)\b/gi;
+/** Canonical display spelling per OEM (acronyms stay upper-case, brands title-case). */
+const OEM_DISPLAY: Record<string, string> = {
+  bmw: "BMW", vw: "VW", volkswagen: "VW", daimler: "Daimler", mercedes: "Mercedes",
+  audi: "Audi", porsche: "Porsche", bosch: "Bosch", zf: "ZF", continental: "Continental",
+  stellantis: "Stellantis", ford: "Ford", toyota: "Toyota", renault: "Renault",
+  volvo: "Volvo", tesla: "Tesla", magna: "Magna", valeo: "Valeo",
+};
+export function namedOems(sp: string | undefined): string | null {
+  if (!sp || typeof sp !== "string") return null;
+  const m = sp.match(OEM_RE);
+  if (!m) return null;
+  const seen = Array.from(new Set(m.map((x) => OEM_DISPLAY[x.toLowerCase()] ?? x))).slice(0, 3);
+  return seen.length > 1 ? `${seen.slice(0, -1).join(", ")} und ${seen[seen.length - 1]}` : seen[0] ?? null;
+}
+
+/** The OEM/customer clause used in the intro (real names only, else null). */
+export function oemClause(a: Account): string | null {
+  const oems = namedOems(a.supplierPressure);
+  if (oems) return oems;
+  if (a.customers.length) return a.customers.slice(0, 2).join(" und ");
+  return null;
+}
+
+/**
+ * Turn a raw (often long / English) pain point into ONE short, plain-German
+ * sentence. Keyword-mapped for the common cases; otherwise trimmed to a short
+ * clause. Deterministic — no runtime LLM.
+ */
+export function germanizePain(rawInput: string): string {
+  const raw = String(rawInput ?? "").trim();
+  if (!raw) return "belastbare CO₂- und Product-Carbon-Footprint-Daten.";
+  const map: [RegExp, string][] = [
+    [/iso ?14067|pcf|product carbon|cradle/i, "Product Carbon Footprints nach ISO 14067 werden von Kunden gefordert."],
+    [/catena|pact|wbcsd/i, "Catena-X verlangt standardisierte CO₂-Daten."],
+    [/csrd|esrs|berichtspflicht|reporting/i, "Die CSRD-Berichtspflicht rückt näher."],
+    [/scope ?3/i, "Scope-3-Daten aus der Lieferkette fehlen."],
+    [/supplier|lieferant|supply chain/i, "Belastbare Lieferantendaten sind schwer zu bekommen."],
+    [/excel|spreadsheet|manual/i, "Die CO₂-Bilanzierung läuft noch über Excel."],
+    [/ecovadis|cdp|questionnaire|fragebogen/i, "Kunden fragen ESG-Bewertungen (EcoVadis, CDP) ab."],
+  ];
+  for (const [re, de] of map) if (re.test(raw)) return de;
+  const first = (raw.split(/[.;|–—-]/)[0] ?? raw).trim();
+  const short = first.length > 88 ? `${first.slice(0, 86).trim()}…` : first;
+  return /[.!?…]$/.test(short) ? short : `${short}.`;
+}
+
+/** A relevance field counts as a real signal when present and not "low/none".
+ *  Robust to messy CRM data (booleans, numbers, null) — coerces before testing. */
+const signal = (v?: unknown): boolean => {
+  if (v === undefined || v === null || v === false) return false;
+  const s = String(v).trim().toLowerCase();
+  return s !== "" && !/^(low|none|no|niedrig|keine?|n\/a|false|0)$/.test(s);
+};
+
+/** Coarse industry bucket derived from the account's real industry string. */
+type Bucket = "automotive" | "maschinenbau" | "chemie" | "pharma" | "logistik" | "elektronik" | "konsumgueter" | "generic";
+function classifyIndustry(industry: string): Bucket {
+  const s = String(industry ?? "").toLowerCase();
+  // VOR automotive: "Freizeitfahrzeuge" enthaelt "fahrzeug" und landete deshalb
+  // im Automotive-Bucket. LMC Caravan baut Wohnwagen fuer Endkunden ueber den
+  // Fachhandel — der Satz "produziert fuer internationale Industrieunternehmen"
+  // und der Catena-X-Aufhaenger waren dort schlicht falsch. Der Druck kommt vom
+  // Handel, wie bei Moebeln und Lebensmitteln.
+  if (/freizeitfahrzeug|wohnmobil|wohnwagen|caravan|reisemobil|fahrrad|e-?bike|boot\b|yacht/.test(s)) return "konsumgueter";
+  if (/automotive|mobility|fahrzeug|automobil|\bkfz\b/.test(s)) return "automotive";
+  if (/maschinen|anlagen|machinery|mechanical|engineering/.test(s)) return "maschinenbau";
+  // VOR chemie prüfen: "pharma" stand früher in der chemie-Zeile, und damit
+  // bekamen Arzneimittelhersteller den Satz "…die internationale Industriekunden
+  // beliefert". Verla-Pharm, Hevert und Mucos beliefern Apotheken, Großhandel
+  // und Kliniken. Es ist derselbe Fehler, der im Default-Zweig schon einmal
+  // repariert wurde — er lief nur an der Reparatur vorbei.
+  if (/pharma|arzneimittel|medikament|biotech|wirkstoff/.test(s)) return "pharma";
+  if (/chemie|chemical|kunststoff|plastic|polymer/.test(s)) return "chemie";
+  if (/logistik|logistics|transport|spedition|fracht|freight/.test(s)) return "logistik";
+  if (/elektro|electronic|elektronik|semiconductor|halbleiter/.test(s)) return "elektronik";
+  // Konsumgüter verkaufen an Handel und Endkunden, nicht an Industriekunden.
+  // Der Druck kommt dort von Handelsketten und Ausschreibungen, die CCF- und
+  // EPD-Daten als Standard in der Beschaffung verlangen.
+  if (/lebensmittel|getr[äa]nk|food|beverage|kosmetik|cosmetic|m[öo]bel|furniture|textil|bekleidung|haushalt|consumer|s[üu][ßs]waren|backwaren|fleisch|molkerei|brauerei|spielzeug/.test(s)) return "konsumgueter";
+  return "generic";
+}
+
+/** The STRONGEST pain as a noun phrase (object of "verlangen … {phrase}"). */
+function painPhrase(a: Account, bucket: Bucket): string {
+  if (namedOems(a.supplierPressure) || signal(a.catenaXRelevance) || signal(a.pcfRelevance) || bucket === "automotive")
+    return "ISO-14067-konforme PCF-Daten entlang Catena-X";
+  if (signal(a.csrdRelevance))
+    return "konsolidierte Scope-1-, Scope-2- und Scope-3-Daten für die CSRD-Berichtspflicht";
+  switch (bucket) {
+    case "maschinenbau": return "belastbare Scope-3- und Product-Carbon-Footprint-Daten";
+    case "chemie": return "transparente CO₂-Daten entlang der gesamten Lieferkette";
+    case "pharma": return "belastbare CO₂-Daten je Produkt und entlang der Lieferkette";
+    case "logistik": return "belastbare Scope-1-, Scope-2- und Scope-3-Daten";
+    case "elektronik": return "standardisierte Product Carbon Footprints";
+    case "konsumgueter": return "produktbezogene CO₂-Daten und Umweltproduktdeklarationen";
+    default: return "belastbare CO₂- und Product-Carbon-Footprint-Daten";
+  }
+}
+
+/**
+ * Der BEDARF dieses Empfaengers als Nominalphrase (Plural).
+ *
+ * Dieselbe Ableitung wie im Erstkontakt — Branche, OEM-Druck, CSRD-Signal. Das
+ * Nachfassen hatte bisher EINEN Satz fuer alle: "falls CO2-Bilanzierung und
+ * PCF-Daten bei X gerade Thema sind". Ein Werkzeugbauer und eine Molkerei
+ * bekamen denselben Text, obwohl der Erstkontakt sie sauber unterschieden hat.
+ */
+export function bedarfsPhrase(a: Account): string {
+  return painPhrase(a, classifyIndustry(a.industry));
+}
+
+/**
+ * Lesbarer Name der Kampagne. Im Store stehen technische Kuerzel ("scope-3",
+ * "catena-x"), und die zweite Nachfassmail setzte sie ungefiltert in den Satz:
+ * "Wenn scope-3-Themen fuer Koinor spaeter relevant werden".
+ */
+export function kampagnenName(campaign: string): string {
+  const k = String(campaign ?? "").toLowerCase();
+  if (k.includes("catena")) return "Catena-X und PCF";
+  if (k.includes("pcf")) return "Product Carbon Footprints";
+  if (k.includes("scope")) return "Scope-3-Bilanzierung";
+  if (k.includes("csrd")) return "CSRD-Berichtspflicht";
+  if (k.includes("supplier")) return "CO₂-Daten für Ihre Kunden";
+  return "CO₂-Bilanzierung";
+}
+
+/** Sentence 1 tail when NO real customer/OEM names exist — anchored on the branch. */
+/**
+ * Erster Satz, wenn weder OEMs noch Kunden im CRM stehen.
+ *
+ * Der Default sagte früher "zahlreiche Industriekunden beliefert" — eine
+ * konkrete Behauptung über das Geschäftsmodell, obwohl an dieser Stelle genau
+ * NICHTS über die Kunden bekannt ist. classifyIndustry kennt nur fünf Branchen;
+ * Medizintechnik, SHK, Beleuchtung, Bahntechnik, Papier und Gummi landen alle
+ * im Default. Waldemar Link liefert Implantate an Kliniken, Kaldewei Wannen an
+ * den Sanitärgroßhandel — bei beiden war der Satz schlicht falsch, und zwar im
+ * ersten Satz, wo Glaubwürdigkeit entsteht.
+ *
+ * Jetzt wird nur noch die BRANCHE genannt, die im CRM steht und damit belegt
+ * ist. Über die Kunden wird nichts behauptet, was wir nicht wissen.
+ */
+function whoByBucket(bucket: Bucket, industry: string): string {
+  switch (bucket) {
+    case "maschinenbau": return "zahlreiche Industriekunden beliefert";
+    /**
+     * "internationale" ist am 02.09.2026 gestrichen — der Rest bleibt.
+     *
+     * Dass ein Chemie- oder Kunststoffverarbeiter Industriekunden beliefert,
+     * folgt aus der Branche, genau wie beim Maschinenbau daneben. Dass er
+     * INTERNATIONAL liefert, folgt aus nichts: von 999 offenen Pool-Leads
+     * traegt einer ein `customers`-Feld, und ein Kunststoffverarbeiter mit
+     * 40 Mitarbeitenden beliefert womoeglich nur deutsche Abnehmer.
+     *
+     * Es ist dieselbe Klasse wie die Faelle, die der Absatz oben schon
+     * aufzaehlt (Waldemar Link, Kaldewei, dann Verla-Pharm ueber den
+     * pharma-Zweig) — nur eine Stufe leiser, weil das falsche Wort nicht der
+     * ganze Satz ist. Es steht trotzdem im ERSTEN Satz, wo Glaubwuerdigkeit
+     * entsteht, und trifft aktuell 9 Empfaenger im Pool.
+     */
+    case "chemie": return "Industriekunden beliefert";
+    // Wie im Default: nur die belegte Branche nennen, nichts über die Kunden
+    // behaupten. Wer Arzneimittel herstellt, beliefert Apotheken, Großhandel
+    // und Kliniken — nicht "Industriekunden".
+    case "pharma": {
+      const b = String(industry ?? "").trim();
+      return b ? `im Bereich ${b} produziert` : "Arzneimittel herstellt";
+    }
+    case "logistik": return "für Unternehmen mit steigenden Nachhaltigkeitsanforderungen tätig ist";
+    case "elektronik":
+    case "automotive": return "für internationale Industrieunternehmen produziert";
+    case "konsumgueter": {
+      const k = String(industry ?? "").trim();
+      return k ? `im Bereich ${k} produziert` : "Konsumgüter herstellt";
+    }
+    default: {
+      const b = String(industry ?? "").trim();
+      return b ? `im Bereich ${b} fertigt` : "produzierend tätig ist";
+    }
+  }
+}
+
+/** Sentence 2 — subject + verb by audience/branch, object = the strongest pain. */
+function sentence2(kind: "oems" | Bucket, pain: string): string {
+  switch (kind) {
+    case "oems": return `Genau diese OEMs verlangen inzwischen ${pain}.`;
+    case "automotive": return `Genau diese Kunden verlangen inzwischen ${pain}.`;
+    case "maschinenbau": return `Genau diese Unternehmen fordern zunehmend ${pain}.`;
+    case "chemie": return `Genau diese Unternehmen erwarten heute ${pain}.`;
+    case "pharma": return `Einkauf und Ausschreibungen verlangen dort zunehmend ${pain}.`;
+    case "logistik": return `Immer mehr Auftraggeber erwarten inzwischen ${pain}.`;
+    case "elektronik": return `Genau diese Kunden verlangen zunehmend ${pain}.`;
+    case "konsumgueter": return `Handelskunden und Ausschreibungen fordern dort zunehmend ${pain}.`;
+    // "diese Unternehmen" hätte keinen Bezug mehr, seit Satz 1 im Default die
+    // Branche nennt statt erfundener Kunden — daher "dort".
+    default: return `Dort verlangen Kunden inzwischen ${pain}.`;
+  }
+}
+
+/**
+ * THE standard outreach opener (identical across all variants): two short,
+ * personal sentences that name the account's real customers/OEMs (or its branch
+ * when none are known) and its strongest pain — so the recipient sees at once
+ * that the email was written for THEIR company. No generic phrasing, no marketing.
+ *
+ *   "Bei unserer Recherche ist uns aufgefallen, dass {company} … {customers}.
+ *    Genau diese {OEMs|Unternehmen|Kunden} verlangen inzwischen {pain}."
+ */
+export function researchIntro(a: Account): string {
+  const oems = namedOems(a.supplierPressure);
+  const custs = a.customers.slice(0, 2);
+  const bucket = classifyIndustry(a.industry);
+  const auto = bucket === "automotive" || signal(a.catenaXRelevance) || signal(a.pcfRelevance);
+
+  // Sentence 1 — who they produce for (real names first, branch otherwise).
+  let who: string;
+  if (oems) who = `unter anderem für ${oems} produziert`;
+  else if (custs.length) {
+    who = bucket === "maschinenbau" || bucket === "chemie" || bucket === "pharma"
+      ? `unter anderem ${custs.join(" und ")} beliefert`
+      : `unter anderem für ${custs.join(" und ")} produziert`;
+  } else who = whoByBucket(bucket, a.industry);
+
+  // Sentence 2 — strongest pain, phrased for the audience/branch.
+  const kind: "oems" | Bucket = oems ? "oems" : auto ? "automotive" : bucket;
+  const s2 = sentence2(kind, painPhrase(a, bucket));
+
+  return `Bei unserer Recherche ist uns aufgefallen, dass ${a.company} ${who}. ${s2}`;
+}
+
+/** HeyCarbo email body paragraph per tone (A–E). Referenced by the HeyCarbo profile. */
+export const HEYCARBO_VALUE: Record<Variant, string> = {
+  A: "Mit HeyCarbo erstellen Sie CO₂-Bilanzen (Scope 1–3) und Product Carbon Footprints in Minuten – auditfähig, für den Mittelstand.",
+  B: "Viele Zulieferer lösen das heute noch in Excel. Mit HeyCarbo erstellen Sie Scope-1-, Scope-2- und Scope-3-Bilanzen sowie Product Carbon Footprints in wenigen Minuten – auditfähig und für den industriellen Mittelstand gedacht.",
+  C: "Mit HeyCarbo schließen Sie genau diese Lücke: Scope-1- bis Scope-3-Bilanzen und Product Carbon Footprints in Minuten – auditfähig, ohne Beraterheer.",
+  D: "Statt Wochen in Excel: Mit HeyCarbo erstellen Sie Scope-1- bis Scope-3-Bilanzen und Product Carbon Footprints in Minuten – auditfähig und ohne externe Berater. Das spart Ihrem Team spürbar Zeit.",
+  E: "Mit HeyCarbo erstellen Sie CO₂-Bilanzen (Scope 1–3) und Product Carbon Footprints in wenigen Minuten – auditfähig und für mittelständische Industrie gemacht.",
+};
+
+/**
+ * Need-specific opening of the value paragraph, keyed by campaign.
+ *
+ * `selectCampaignHeycarbo()` already derives WHICH obligation a lead is actually
+ * under — but that only ever fed internal metadata, so every recipient read the
+ * same generic pitch. These sentences name the concrete requirement instead.
+ * Each is deliberately short (≤ 16 words): the body has a 130-word budget and
+ * the intro plus the tone paragraph already use most of it.
+ */
+export const HEYCARBO_NEED: Record<string, string> = {
+  "catena-x": "Catena-X-Anfragen verlangen den PCF je Teilenummer nach ISO 14067 – nicht auf Unternehmensebene.",
+  // "bei Industriekunden" stimmte für Konsumgüter nicht — dort entscheidet der
+  // Handel. "in Ausschreibungen" trägt in beiden Welten und behauptet nichts
+  // über die Abnehmerstruktur.
+  pcf: "Product Carbon Footprints je Artikel sind in Ausschreibungen zunehmend Teil der Vergabeentscheidung.",
+  // Zwei Auspraegungen desselben Mechanismus, getrennt am 02.09.2026. Wer ein
+  // TEIL zuliefert, wird nach der Teilenummer gefragt; wer eine MASCHINE
+  // liefert, nach dem Erzeugnis. Beide Saetze beschreiben nur, wie gefragt
+  // wird — sie behaupten nichts ueber den Empfaenger, seine Kunden oder seine
+  // Zertifikate. Das ist Absicht: der Einstiegssatz hat zweimal Kunden
+  // behauptet, die niemand belegen konnte.
+  "pcf-teil": "Für zugelieferte Teile wird der CO₂-Fußabdruck je Teilenummer abgefragt, nicht für das Unternehmen.",
+  "pcf-anlage": "Bei Maschinen und Anlagen fragen Industriekunden den Fußabdruck je Erzeugnis für ihre Scope-3-Bilanz ab.",
+  csrd: "Für die CSRD-Berichtspflicht müssen Scope 1 bis 3 prüffähig dokumentiert sein.",
+  "supplier-management": "Ihre Kunden fordern Lieferantendaten für ihre eigene Scope-3-Bilanz an – meist mit Frist.",
+  esg: "EcoVadis- und CDP-Fragebögen kosten pro Antwort schnell mehrere Arbeitstage.",
+  "scope-3": "Scope 3 ist der größte Posten der Bilanz – und genau der, den Ihre Kunden abfragen.",
+};
+
+/** Need sentence for a campaign; empty string when the campaign is unknown. */
+export function needLeadHeycarbo(campaign: string): string {
+  return HEYCARBO_NEED[campaign] ?? "";
+}
+
+/** HeyCarbo closing ask per tone (A–E). Referenced by the HeyCarbo profile. */
+export const HEYCARBO_CLOSING: Record<Variant, string> = {
+  A: "Hätten Sie nächste Woche 15 Minuten für einen kurzen Austausch?",
+  B: "Wenn das Thema bei Ihnen gerade relevant ist, zeige ich Ihnen in 15 Minuten, worauf es bei auditfähigen PCF-Daten wirklich ankommt. Hätten Sie nächste Woche kurz Zeit?",
+  C: "Hätten Sie nächste Woche 15 Minuten? Ich zeige Ihnen, wie andere Zulieferer diese Anforderung heute ohne Mehraufwand erfüllen.",
+  D: "Hätten Sie nächste Woche 15 Minuten? Ich zeige Ihnen gern, wie viel Aufwand andere Zulieferer damit heute einsparen.",
+  E: "Wäre das für Sie gerade ein Thema? Über einen kurzen Austausch nächste Woche – 15 Minuten – würde ich mich freuen.",
+};
+
+/** A relevance field counts as a signal when present and not "low/none". */
+const relevant = (v: string | undefined): boolean => !!v && /high|hoch|mittel|medium|yes|ja|true|relevant/i.test(v);
+
+/** HeyCarbo campaign selection from the account's real carbon signals (deterministic). */
+export function selectCampaignHeycarbo(a: Account): string {
+  if (relevant(a.catenaXRelevance)) return "catena-x";
+  if (relevant(a.pcfRelevance)) return "pcf";
+  if (relevant(a.csrdRelevance)) return "csrd";
+  const hay = `${a.supplierPressure ?? ""} ${a.painPoints.join(" ")}`.toLowerCase();
+  if (/catena|pact|wbcsd/.test(hay)) return "catena-x";
+  if (/pcf|14067|product carbon|cradle/.test(hay)) return "pcf";
+  if (/csrd|esrs|berichtspflicht/.test(hay)) return "csrd";
+  if (/lieferant|supplier|supply chain|scope ?3/.test(hay)) return "supplier-management";
+  if (/ecovadis|cdp|esg|questionnaire|fragebogen/.test(hay)) return "esg";
+  return campaignFromIndustry(a.industry);
+}
+
+/**
+ * Fallback when a lead carries none of the enrichment fields — which is the
+ * normal case: only ~3 % of the CRM has `pcf_relevance` & friends, so everything
+ * else used to collapse onto "scope-3" and read identically.
+ *
+ * The branch itself is a real signal: a company that ships physical articles
+ * into industrial customers gets asked for a PCF per article, while an
+ * automotive supplier gets asked through Catena-X specifically.
+ *
+ * MASCHINEN- UND ANLAGENBAU gehoert in denselben pcf-Zweig, stand aber bis zum
+ * 02.09.2026 nicht drin. Die zweite Zeile listet ausschliesslich WERKSTOFFE
+ * (Kunststoff, Metall, Stahl, Keramik, Glas) — sie wurde am alten
+ * Zulieferer-Bestand geschrieben, in dem es kaum Maschinenbauer gab. Der
+ * VDMA-Messe-Import vom 31.08. hat den Pool umgedreht: von 780 offenen Leads
+ * trugen 626 eine Maschinenbau-Branche (Lufttechnik 110, Robotik 102,
+ * Elektrische Automation 85, Antriebstechnik 66, Fluidtechnik 59, Armaturen 51,
+ * Landtechnik 40 …) und fielen samt und sonders auf "scope-3" — 80 % des Pools
+ * lasen denselben Satz.
+ *
+ * Ein Kran-, Pumpen- oder Roboterhersteller erfuellt die Bedingung des
+ * Absatzes oben woertlich: er liefert ein physisches Erzeugnis an
+ * Industriekunden und wird danach nach dessen PCF gefragt. Die Regel ist also
+ * unveraendert — sie wird nur auf einen Bestand angewandt, den es bei ihrer
+ * Formulierung noch nicht gab.
+ *
+ * Reihenfolge beachten: "automotive" wird vorher geprueft und bleibt bei
+ * Catena-X. "fahrzeug" faengt Fahrzeugbau weiterhin dort ab.
+ */
+export function campaignFromIndustry(industry: string): string {
+  const s = String(industry ?? "").toLowerCase();
+  if (/automotive|mobility|fahrzeug|automobil|\bkfz\b/.test(s)) return "catena-x";
+  /**
+   * ERZEUGNIS ZUERST — das Suffix schlaegt das Material.
+   *
+   * "Werkzeugmaschinen", "Verpackungsmaschinen" und "Textilmaschinen" trafen
+   * sonst ueber "werkzeug"/"verpackung"/"textil" die Teile-Liste unten, weil
+   * sie frueher geprueft wird. Wer eine MASCHINE baut, liefert aber ein
+   * Erzeugnis, gleich fuer welchen Werkstoff sie gedacht ist. Aufgefallen beim
+   * Pruefen von sechs neuen VDMA-Fachverbaenden am 02.09.2026: drei von sechs
+   * waeren falsch angesprochen worden.
+   */
+  if (/maschinen|anlagen(bau)?\b|maschinenbau|drucktechnik|papiertechnik/.test(s)) return "pcf-anlage";
+  /**
+   * TEIL — wird in das Erzeugnis eines anderen verbaut, die Anfrage kommt je
+   * Teilenummer. Das ist die urspruengliche Werkstoff-Liste (sie beschrieb
+   * genau diese Rolle) plus die Komponentenbauer aus dem VDMA-Bestand:
+   * Antriebstechnik, Armaturen, Pumpen, Fluidtechnik, Lager, Praezisions-
+   * werkzeuge, Motoren.
+   */
+  if (/kunststoff|chemie|polymer|plastic|metall|stahl|aluminium|guss|gieß|giess|keramik|glas|papier|verpackung|gummi|elastomer|elektronik|elektrotechnik|kabel|komponent|oberfläch|beschicht|textil|werkzeug|feinmechanik|antriebstechnik|armaturen|pumpen|fluidtechnik|lager\b|verbindungstechnik|pr[äa]zision|dichtung|feder\b|schrauben|motoren|antrieb\b|getriebe|w[äa]lzlager/.test(s))
+    return "pcf-teil";
+  /**
+   * ERZEUGNIS — eine Maschine oder Anlage, die der Kunde selbst betreibt. Die
+   * Anfrage gilt dem gelieferten Geraet, weil es in dessen Scope 3 landet.
+   */
+  if (/robotik|automation|lufttechnik|f[öo]rdertechnik|hebetechnik|intralogistik|\bkran|landtechnik|verfahrenstechnik|reinigungssystem|montage|holzbearbeitung|drucktechnik|papiertechnik/.test(s))
+    return "pcf-anlage";
+  return "scope-3";
+}
+
+/**
+ * TEXTVARIANTEN FÜR DIE NACHFASSMAILS.
+ *
+ * Der Erstkontakt testet seit Batch 95 drei Betreffzeilen; die Nachfassmails
+ * hatten dagegen je EINEN festen Text — und sie sind die Stufe, aus der beide
+ * Conversions kamen (REEL, und Bcomp einen Tag nach der Nachfassmail). Genau
+ * dort wurde also nie etwas gemessen.
+ *
+ * Arm 0 ist jeweils der bisherige Wortlaut. Das ist Absicht: ohne unveränderte
+ * Kontrollgruppe wäre ein Unterschied nicht zuzuordnen, weil das Vorher nur
+ * aus einer Zeit ohne Zuteilung stammt.
+ *
+ * Die Zuteilung ist deterministisch je Lead (siehe `experiment.ts`), damit ein
+ * Empfänger nicht mitten in der Sequenz die Tonlage wechselt.
+ */
+export const FOLLOWUP1_ARME: ((a: Account) => string)[] = [
+  // Arm 0 — Kontrolle, unverändert.
+  (a) =>
+    `Guten Tag, ich wollte kurz nachfassen. Falls ${bedarfsPhrase(a)} bei ${a.company} gerade anstehen, zeige ich Ihnen in 15 Minuten, wie HeyCarbo den Aufwand dafür senkt. Passt das diese Woche?`,
+  // Arm 1 — benennt, WO der Aufwand steckt, statt ihn nur zu behaupten. Wer
+  // das Thema kennt, erkennt sich in der Beobachtung wieder; wer es nicht
+  // kennt, erfährt in einem Satz, worum es überhaupt geht.
+  //
+  // "Der Aufwand für …", nicht "Bei …": `bedarfsPhrase` liefert eine
+  // Nominalphrase im Plural mit schwach dekliniertem Adjektiv ("belastbare
+  // … Daten"). Nach "für" (Akkusativ) stimmt sie unverändert, nach "bei"
+  // (Dativ) müsste es "belastbaren … Daten" heißen. Der erste Entwurf stand
+  // genau so da und wäre falsch an über tausend Empfänger gegangen.
+  (a) =>
+    `Guten Tag, kurz nachgefasst: Der Aufwand für ${bedarfsPhrase(a)} steckt erfahrungsgemäß im Zusammentragen der Daten, nicht in der Rechnung dahinter. Genau da setzt HeyCarbo an. Wäre ein kurzer Blick für ${a.company} interessant — 15 Minuten?`,
+  // Arm 2 — fragt nach der zuständigen Person statt nach einem Termin.
+  //
+  // Der überwiegende Teil des Bestands sind Sammelpostfächer (info@, kontakt@).
+  // Dort sitzt niemand, der über CO₂-Bilanzierung entscheidet — aber jemand,
+  // der weiterleiten kann. Eine Weiterleitung ist die kleinere Bitte als ein
+  // Termin, und sie ist die einzige, die dieses Postfach überhaupt erfüllen kann.
+  //
+  // "liegen", nicht "liegt" — die Phrase ist immer Plural (alle acht Zweige
+  // von `painPhrase` enden auf "-Daten" oder "-Footprints").
+  (a) =>
+    `Guten Tag, ich wollte kurz nachfassen — vermutlich liegen ${bedarfsPhrase(a)} gar nicht auf Ihrem Tisch. Könnten Sie mir sagen, wer das Thema bei ${a.company} verantwortet? Dann wende ich mich direkt an die richtige Stelle und lasse Ihr Postfach in Ruhe.`,
+];
+
+export const FOLLOWUP2_ARME: ((a: Account, ctx: { campaign: string; calendlyUrl: string }) => string)[] = [
+  // Arm 0 — Kontrolle, unverändert.
+  (a, ctx) =>
+    `Guten Tag, ich lasse es dabei — Sie haben Wichtigeres zu tun. Sollte das Thema ${kampagnenName(ctx.campaign)} bei ${a.company} später auf den Tisch kommen, melden Sie sich gern: ${ctx.calendlyUrl}`,
+  // Arm 1 — eine Frage, die sich mit einem Wort beantworten lässt. Kein Link,
+  // keine Terminbitte: die Hürde ist bewusst so niedrig wie möglich, weil auch
+  // ein "nein" den Bestand sauber macht.
+  //
+  // "das Thema" davor — dieselbe Kongruenzfalle wie in Arm 0: `kampagnenName`
+  // liefert teils Plural ("Product Carbon Footprints"), und "Ist Product
+  // Carbon Footprints … ein Thema?" stand im ersten Entwurf wörtlich so da.
+  (a, ctx) =>
+    `Guten Tag, letzte Nachricht von mir. Eine Frage, die sich in einem Wort beantworten lässt: Steht das Thema ${kampagnenName(ctx.campaign)} bei ${a.company} in diesem Jahr an? Wenn nicht, hake ich es ab — das ist völlig in Ordnung.`,
+  // Arm 2 — dieselbe Tür wie Arm 0, aber der Abschied steht vorn. Wer nicht
+  // antwortet, soll wenigstens einen guten letzten Eindruck behalten.
+  (a, ctx) =>
+    `Guten Tag, ich höre hier auf — zwei Mails sind genug, wenn das Thema gerade nicht dran ist. Falls das Thema ${kampagnenName(ctx.campaign)} bei ${a.company} später aufschlägt: Der Kalender steht offen, ${ctx.calendlyUrl}. Alles Gute bis dahin.`,
+];
+
+/**
+ * Nachfasstext plus zugeteilter Arm.
+ *
+ * Der Arm wird mitgegeben, weil `followup-run.ts` ihn am Lead festhalten muss —
+ * sonst laesst sich hinterher nicht sagen, welcher Text zu welcher Antwort
+ * gehoerte, und der Test waere wieder nur eine kompliziertere Art, dasselbe zu
+ * tun. Ohne gesetzte Umgebungsvariablen sind alle Arme aktiv.
+ */
+export function followUp1Fuer(a: Account): { arm: number; text: string } {
+  const cfg = followUpConfig(FOLLOWUP1_ARME.length, FOLLOWUP2_ARME.length);
+  const arm = assignFollowUpArm(a.id, 1, cfg.stufe1);
+  return { arm, text: (FOLLOWUP1_ARME[arm] ?? FOLLOWUP1_ARME[0]!)(a) };
+}
+
+export function followUp2Fuer(a: Account, ctx: { campaign: string; calendlyUrl: string }): { arm: number; text: string } {
+  const cfg = followUpConfig(FOLLOWUP1_ARME.length, FOLLOWUP2_ARME.length);
+  const arm = assignFollowUpArm(a.id, 2, cfg.stufe2);
+  return { arm, text: (FOLLOWUP2_ARME[arm] ?? FOLLOWUP2_ARME[0]!)(a, ctx) };
+}
+
+/** Build the four personalized paragraphs for one account in the requested tone (HeyCarbo). */
+export function buildCopy(a: Account, v: Variant): EmailCopy {
+  return {
+    greeting: GREETING,
+    intro: researchIntro(a), // standard opener — identical across all variants
+    value: HEYCARBO_VALUE[v],
+    closing: HEYCARBO_CLOSING[v],
+  };
+}

@@ -1,0 +1,36 @@
+{
+  "source": "health-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "healthScore": 76,
+      "build": "pass (8.57s)",
+      "typecheck": "pass",
+      "tests": "133 pass / 12 files (was 95 at session start)",
+      "coverageTool": "missing (@vitest/coverage-v8) — % not measurable",
+      "lint": "not configured (no ESLint)",
+      "runtimeConsole": "not checked live this run; prior prod landing = 0 console errors",
+      "security": {
+        "undici": "HIGH x7 (transitive/dev; fix via npm audit fix)",
+        "vite": "HIGH (7.0-7.3.3; fix available)",
+        "vitest": "CRITICAL (dev-only UI server; fix available)",
+        "xlsx": "HIGH (Prototype Pollution + ReDoS; NO upstream fix — customer-facing import path)"
+      },
+      "performance": "vendor-pdf 1.57MB/523KB gzip, vendor-xlsx 429KB, vendor-charts 420KB; chunk-size warning",
+      "deadCode": ["climate-benchmark", "decarb-simulator", "data-lineage", "product-hotspot-engine (0 importers)", "ai-data-classifier/erp-connectors/supplier-scoring (1 importer, partial)"],
+      "outdated": "majors behind: lucide 0.563->1.21, @vitejs/plugin-react 5->6, pdfjs 5->6, jsdom 28->29, vite 7->8, typescript 5.9->6; supabase-js 13 minors",
+      "workflows": ["ci.yml", "db-migrate-prod.yml", "edge-functions-deploy.yml", "migration-dryrun.yml"],
+      "customerFacingBugs": "none found (build+types+tests green; payloadHash stale-answer bug fixed earlier)",
+      "goalCandidates": [
+        { "id": "sec-audit-fix", "title": "npm audit fix (clears undici x7, vite, vitest — non-breaking)", "kind": "bug", "risk": "low" },
+        { "id": "sec-xlsx-replace", "title": "Replace xlsx (no upstream fix, customer import path)", "kind": "improvement", "risk": "high" },
+        { "id": "tooling-coverage", "title": "Add @vitest/coverage-v8 + coverage report", "kind": "improvement", "risk": "low" },
+        { "id": "tooling-eslint", "title": "Add ESLint config + lint CI gate", "kind": "improvement", "risk": "low" },
+        { "id": "perf-bundle-split", "title": "Code-split vendor-pdf/xlsx/charts", "kind": "improvement", "risk": "medium" },
+        { "id": "deadcode-sweep", "title": "Remove 4 confirmed-unused util modules (confirm with knip)", "kind": "improvement", "risk": "low" },
+        { "id": "deps-upgrade-majors", "title": "Major dep upgrades (TS6, Vite8, lucide1, pdfjs6, jsdom29)", "kind": "improvement", "risk": "medium" }
+      ]
+    }
+  ]
+}

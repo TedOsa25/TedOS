@@ -1,0 +1,46 @@
+{
+  "source": "supplier-watchdog",
+  "project": "HeyCarbo",
+  "mode": "read-only (GoalCandidates only; no implementation). High-risk items flagged needsApproval.",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "headline": "Supplier network is SHIPPED and mature (invitations, public token portal /s/:token, auto-import, 6h reminder cron, risk scoring, engagement/audit logging, request-management UI). Business gaps are at the edges: scale of onboarding, data-quality wiring, Catena-X, and — critically — measurability.",
+      "evidence": {
+        "capabilities": { "source": "HeyCarbo code (Explore agent: supabase/migrations 005/052/053/056/059/060/085/096/097, supabase/functions/supplier-{invite,submit,respond,reminder-cron,risk-score}, frontend Suppliers/SupplierRequests/SupplierDueDiligence pages)", "confidence": "high" },
+        "metrics": { "source": "none — Supabase read connector unavailable (Evidence Engine 0/8 sources)", "confidence": "low (hypothesis)", "note": "invitation count, activation rate, response rate, avg response time, primary-data coverage %, risk distribution ALL require live Supabase queries; not reachable from static code." }
+      },
+      "shippedSoNoNewWork": [
+        "Supplier invitations (token email, draft→sent→reminded→opened→in_progress→completed; 30d soft/90d hard expiry)",
+        "Public supplier portal /s/:token (auth-free, rate-limited, multi-file upload, CSRD-defensible typed attestation)",
+        "Response auto-import to supplier_emissions (data_quality='primary')",
+        "Reminder cron (pg_cron 6h; day-3/7/14 supplier + day-21 customer escalation)",
+        "Engagement + token audit logs (immutable, 10y retention, CSRD §131)",
+        "Supplier risk scoring (LkSG, deterministic + AI explanation)",
+        "Request-management UI (SupplierRequestsPage, response detail, copy-link)"
+      ],
+      "plannedNotWired_doNotDelete": [
+        "response_quality_score / completeness_pct — schema in 096, recompute logic NOT implemented (column always NULL). PLANNED, not dead.",
+        "monthly_rollups.primary_data_pct — column exists; backend compute job NOT verified to run. CSRD Datenherkunft section depends on it.",
+        "Catena-X / data-space export — referenced in docs/messaging only; zero integration code. PLANNED.",
+        "Supplier marketplace / peer data sharing — product-knowledge widget only; no code. PLANNED."
+      ],
+      "goalCandidates": [
+        { "id": "supplier-bulk-import", "title": "Bulk supplier onboarding (CSV/Excel upload → batch invite)", "kind": "feature", "risk": "MEDIUM", "needsApproval": false, "businessImpact": "HIGH — activation/growth. Only single-supplier add exists; the active Sales pipeline (GRAFE & masterbatch mfrs) each have dozens of upstream suppliers — one-at-a-time invite is the #1 onboarding friction. Directly lifts supplier activation volume.", "leverage": "highest near-term supplier-growth lever that is NOT compliance/CO2", "note": "new frontend import + batch supplier-invite path; reuse existing invite/token machinery." },
+        { "id": "supplier-data-connector-readonly", "title": "Enable Supabase read connector so TedOS can MEASURE supplier funnel (invite/activation/response/coverage)", "kind": "ops", "risk": "LOW", "needsApproval": false, "businessImpact": "HIGH (meta-unblock) — without it every supplier metric here is hypothesis-only. With it, the watchdog can report real activation %, response time, primary-data coverage, risk distribution and prioritize correctly.", "blockedOn": "you provide read-only Supabase credentials per connectors-setup.md", "note": "read-only; does not touch product logic." },
+        { "id": "supplier-response-quality-wiring", "title": "Wire response_quality_score (completeness 40 / evidence 30 / recency 15 / source 15) — currently always NULL", "kind": "feature", "risk": "MEDIUM", "needsApproval": false, "businessImpact": "MED — data-quality visibility; surfaces weak supplier responses so customers know which to chase. Rubric + column already exist; only recompute logic missing.", "note": "scoring/aggregation, not the CO2 calc itself." },
+        { "id": "supplier-questionnaire-customization", "title": "Org-level questionnaire template customization UI (global template only today)", "kind": "feature", "risk": "MEDIUM", "needsApproval": false, "businessImpact": "MED — enterprise adoption; larger customers need custom supplier questions. Clone exists; management UI incomplete.", "note": "" },
+        { "id": "supplier-catenax-readiness", "title": "Catena-X / PCF data-space export readiness (spike → feasibility, not full build)", "kind": "strategic", "risk": "HIGH", "needsApproval": true, "businessImpact": "HIGH strategic — the Sales segment (plastics/masterbatch suppliers to VW/BMW/Mercedes) is exactly who automotive OEMs push to deliver PCF via Catena-X. Today: messaging claims it, code has zero data-space integration (no IDS-DAPS, no eIDAS, no export format). Largest enterprise-adoption gap.", "note": "HIGH risk + large effort; recommend a scoped feasibility spike first, not a build. Auto-flagged for approval." },
+        { "id": "supplier-scope3-category-mapping", "title": "Map supplier emissions to correct Scope-3 category (auto-import defaults ALL to Cat.1 Purchased Goods)", "kind": "bug", "risk": "HIGH", "needsApproval": true, "businessImpact": "HIGH accuracy/compliance — every auto-imported supplier emission lands in Scope-3 Category 1 regardless of actual category, distorting the 15-category CSRD breakdown.", "note": "touches CO2 categorization → HIGH risk; do NOT auto-implement. Auto-flagged for approval." },
+        { "id": "supplier-primary-data-cron-verify", "title": "Verify monthly_rollups.primary_data_pct compute job actually runs (CSRD Datenherkunft depends on it)", "kind": "ops", "risk": "HIGH", "needsApproval": true, "businessImpact": "HIGH compliance — if the rollup cron isn't running, the CSRD primary-vs-secondary data-lineage section is empty/stale. Static code can't confirm; needs live infra check.", "note": "verification is read-only, but remediation touches compliance/CO2 rollups → HIGH. Auto-flagged for approval." },
+        { "id": "supplier-self-service-account", "title": "Recurring supplier account (re-use prior responses across annual CSRD cycles)", "kind": "feature", "risk": "HIGH", "needsApproval": true, "businessImpact": "MED — retention/engagement; today every invite is a one-time form fill, so suppliers re-enter everything each year. Reduces repeat-cycle friction.", "note": "introduces supplier auth + RLS → HIGH risk, large effort. Auto-flagged for approval." }
+      ],
+      "absentByDesignOrLowPriority": [
+        "eIDAS qualified e-signature — current typed attestation is CSRD-defensible for voluntary audits; only needed for regulatory enforcement (defer until a customer requires it).",
+        "Supplier incentive/gamification — no evidence of demand; low priority.",
+        "Inbound ERP webhook/embed API — pull-only flow is adequate for current SME segment."
+      ],
+      "topRecommendation": "Two unblocks dominate: (1) bulk supplier import — the only LOW/MEDIUM, non-compliance lever that directly raises activation volume for the real pipeline; (2) the read-only Supabase connector — until it exists, TedOS is blind to actual activation/response/coverage and every supplier metric is a guess. Catena-X is the biggest strategic prize but is a HIGH-risk, large build — start with a feasibility spike, not implementation."
+    }
+  ]
+}

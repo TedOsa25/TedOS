@@ -1,0 +1,21 @@
+{
+  "source": "content-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "theme": "Scope 3 is a supplier-data problem",
+      "brandGuardian": { "linkedin": "ok (0 issues)" },
+      "drafts": ["linkedin", "instagram", "carousel", "stories", "newsletter", "blog", "image-prompt"],
+      "status": "draft — approval-gated (no organic social connector configured; publishing manual)",
+      "reasoner": { "businessImpact": 6, "customerValue": 7, "seoPotential": 7, "virality": 5, "brandImpact": 7, "leadPotential": 6, "revenueImpact": 4 },
+      "ctaUsed": ["Lieferanten kostenlos einladen", "Scope-3 analysieren", "Supplier Portal testen"],
+      "blockers": ["{{DEMO_CALENDAR_URL}} unset", "no LinkedIn/Instagram organic publish/analytics connector"],
+      "goalCandidates": [
+        { "id": "content-publish-2026-06-25", "title": "Publish 2026-06-25 Scope-3 content set", "kind": "feature", "risk": "medium", "category": "marketing", "note": "approval + connector required" },
+        { "id": "connector-social-publishing", "title": "Add LinkedIn/Instagram organic publish+analytics connector", "kind": "feature", "risk": "medium", "category": "growth" },
+        { "id": "config-demo-calendar", "title": "Configure {{DEMO_CALENDAR_URL}} (demo booking link) for all CTAs", "kind": "improvement", "risk": "low", "category": "growth", "note": "blocked on input / gcal" }
+      ]
+    }
+  ]
+}

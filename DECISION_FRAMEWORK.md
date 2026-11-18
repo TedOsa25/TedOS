@@ -37,39 +37,9 @@ Prefer reuse over creation.
 
 ---
 
-## Human Approval
+## Approval & Autonomy
 
-Human approval is required for:
-
-* Production deployments
-* Database migrations
-* Security changes
-* Payment changes
-* Data deletion
-* Customer-facing pricing
-* Legal decisions
-
----
-
-## AI Autonomy
-
-AI may autonomously:
-
-* Write documentation
-* Refactor code
-* Generate reports
-* Improve tests
-* Suggest architecture
-* Create drafts
-* Research competitors
-
-AI should never autonomously:
-
-* Delete production data
-* Change billing
-* Merge critical code
-* Modify security policies
-* Make legal commitments
+The canonical risk tiers, approval policy, and what TedOS may or may not do autonomously are defined once in **BOOTSTRAP.md → TedOS Operating System — Global Policies** (the single source of truth). Do not restate them here.
 
 ---
 
@@ -137,5 +107,7 @@ Every decision should improve at least one of:
 * Scalability
 * Reliability
 * Developer Experience
-ø
-≈
+
+## High-Impact, Production-First & Smallest-Change
+
+The High-Impact Change workflow (HIGH risk), Production First, and the Smallest Change Principle are canonical in **BOOTSTRAP.md → TedOS Operating System — Global Policies**. They are not duplicated here.

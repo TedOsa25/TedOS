@@ -1,0 +1,30 @@
+{
+  "source": "ux-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "uxScore": 80,
+      "method": "Code-level review (design system, a11y patterns, SEO). Live multi-viewport/visual pass still pending (browser session unavailable).",
+      "strengths": ["prefers-reduced-motion handled (index.css)", "focus-visible styled (13 rules)", "aria-labels in 35 files / role in 16", "mature --hc-* token system + brandbook"],
+      "findings": {
+        "critical": [],
+        "high": [
+          "Design-token drift: thousands of hardcoded hex in components/pages (431x #000000, 333x #111827, 298x teal #13A6A6, 296x #605f5f) instead of --hc-* tokens — consistency + retheme risk",
+          "Accent ambiguity: teal #13A6A6 used 298x vs documented emerald #10B981 vs --hc-accent navy #004096 (see ux-accent-token-drift)"
+        ],
+        "medium": [
+          "5 pages (Plattform, FuerWen, Compliance, Reduction, HelioMarketing) set document.title directly — missing meta description / og / canonical (SEO/growth)",
+          "Heavy bundles slow first load (vendor-pdf 1.57MB) — perceived performance (perf-bundle-split)"
+        ],
+        "low": ["Ensure all new content/CTAs use --hc-* tokens (enforce via Brand Guardian / lint)"]
+      },
+      "benchmark": "Linear/Stripe/Vercel-grade token discipline exists in the system, but component-level hardcoding undermines it; SEO meta completeness lags Stripe/Notion marketing pages.",
+      "goalCandidates": [
+        { "id": "seo-meta-pages", "title": "Add <SEO> (description/og/canonical) to 5 document.title-only pages", "kind": "improvement", "risk": "medium", "impact": "growth/SEO", "effort": "S" },
+        { "id": "ux-token-migration", "title": "Migrate hardcoded hex → --hc-* tokens across components/pages", "kind": "improvement", "risk": "medium", "impact": "consistency/maintainability", "effort": "L" },
+        { "id": "ux-accent-token-drift", "title": "Resolve accent ambiguity (teal/emerald/navy) — brand decision", "kind": "improvement", "risk": "high", "impact": "brand consistency", "effort": "S" }
+      ]
+    }
+  ]
+}

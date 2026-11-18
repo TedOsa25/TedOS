@@ -4,6 +4,8 @@
 
 These rules apply to every agent, subsystem, workflow and project inside TedOS.
 
+> The canonical Operating Principles and the Approval / Commit / Marketing / Loop policies live in **BOOTSTRAP.md → TedOS Operating System — Global Policies** (single source of truth). The rules below complement them and never override them.
+
 ---
 
 ## General Rules

@@ -1,0 +1,28 @@
+{
+  "reports": [
+    {
+      "date": "2026-06-24",
+      "scores": { "health": 75, "ux": 78, "strategy": null },
+      "completedGoals": [
+        "fix(net-zero): SBTi near-term 2030 → linear 42% (approved compliance correction) + tests",
+        "fix(seo): remove duplicated brand in landing <title>",
+        "fix(seo): idempotent brand suffix guard + regression test",
+        "test(helio-serializer): regression coverage (surfaced payloadHash cache bug)"
+      ],
+      "pendingApprovals": [
+        { "id": "fix-payloadhash-replacer", "risk": "medium", "note": "stale Helio AI answers via cache-key collision; 1-line fix ready" },
+        { "id": "deps-upgrade-majors", "risk": "medium" },
+        { "id": "perf-bundle-split", "risk": "medium" },
+        { "id": "sec-xlsx-replace", "risk": "high" },
+        { "id": "ux-accent-token-drift", "risk": "high", "note": "brand decision: emerald #10B981 vs navy #004096" }
+      ],
+      "criticalRisks": [
+        "xlsx Prototype Pollution + ReDoS — no upstream fix (user file import)",
+        "payloadHash collisions → Helio assistant may return stale answers"
+      ],
+      "newGoalCandidates": ["fix-payloadhash-replacer", "test-helio-serializer(done)", "ux-seo-brand-guard(done)", "tooling-eslint", "tooling-coverage", "test-helio (done)"],
+      "branch": "tedos/autonomous-safe-mode",
+      "note": "Strategy Watchdog first run scheduled 10:08 tomorrow — no strategy data today."
+    }
+  ]
+}

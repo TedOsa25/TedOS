@@ -1,0 +1,23 @@
+{
+  "source": "growth-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "method": "Code-level (no browser this run). Live funnel/conversion analytics (real signup/trial/activation rates) NOT available here — flag for product-analytics access.",
+      "strengths": ["sitemap.xml + robots.txt + og-image + webmanifest present", "Pricing/Signup/Start/Trial pages exist; price (129€) on landing", "28 pages already render <SEO>"],
+      "signals": {
+        "seoCoverage": "69 routes vs 28 pages rendering <SEO> — many PUBLIC pages (wissen/tools/vergleich/marketing) likely miss meta description/og/canonical (some routes are auth-gated app pages that don't need SEO). Biggest top-of-funnel lever.",
+        "landingCTA": "Landing surfaces mainly 'Demo buchen' (sales-led). Best-in-class (Stripe/Vercel/Linear) pair a self-serve CTA ('Kostenlos testen') WITH 'Demo buchen' to capture both buyer types.",
+        "performance": "Heavy bundles (vendor-pdf 1.57MB/523KB gzip) slow first paint → conversion friction (perf-bundle-split)."
+      },
+      "goalCandidates": [
+        { "id": "seo-coverage-public-pages", "title": "Audit + add <SEO> to all public pages missing it (wissen/tools/vergleich/marketing)", "kind": "improvement", "risk": "low", "businessImpact": "HIGH — organic traffic / top-of-funnel", "effort": "M (per-page additive, like the Helio fix)" },
+        { "id": "landing-dual-cta", "title": "Add self-serve 'Kostenlos testen' CTA alongside 'Demo buchen' on landing", "kind": "feature", "risk": "medium", "businessImpact": "HIGH — captures self-serve + sales buyers", "effort": "S" },
+        { "id": "perf-bundle-split", "title": "Code-split heavy vendor bundles off landing (faster paint → conversion)", "kind": "improvement", "risk": "medium", "businessImpact": "MEDIUM — load/bounce", "effort": "M" },
+        { "id": "competitor-comparison-pages", "title": "High-intent SEO comparison pages (vs Cozero/Plan A/EcoVadis)", "kind": "feature", "risk": "medium", "businessImpact": "MEDIUM-HIGH — bottom-funnel intent", "effort": "M" },
+        { "id": "content-keyword-angles", "title": "Feed Marketing Watchdog: Scope-3 / CSRD / VSME / Catena-X keyword content", "kind": "feature", "risk": "low", "businessImpact": "MEDIUM — organic + thought leadership", "effort": "S (content, approval-gated)" }
+      ]
+    }
+  ]
+}

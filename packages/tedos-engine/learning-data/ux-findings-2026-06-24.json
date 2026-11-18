@@ -1,0 +1,15 @@
+{
+  "source": "product-watchdog-ux",
+  "project": "HeyCarbo",
+  "date": "2026-06-24",
+  "uxScore": 78,
+  "method": "Production landing load (heycarbo.com) + design-system token review (index.css) + build output. Authenticated dashboard/forms/empty/loading/a11y review pending a live session (see ux-live-audit candidate).",
+  "goalCandidates": [
+    { "id": "ux-title-dupe-brand", "title": "Fix duplicated brand in <title> ('... | HeyCarbo | HeyCarbo')", "kind": "bug", "impact": "medium", "effort": "low" },
+    { "id": "ux-accent-token-drift", "title": "Reconcile accent token drift: CLAUDE.md says emerald #10B981 locked, index.css --hc-accent is navy #004096", "kind": "improvement", "impact": "medium", "effort": "low" },
+    { "id": "ux-font-preload-unused", "title": "Remove/repair unused Gelica font preload (warns on every landing load)", "kind": "improvement", "impact": "low", "effort": "low" },
+    { "id": "perf-bundle-pdf-split", "title": "Code-split vendor-pdf (1.57MB / 523KB gzip) and lazy-load PDF/xlsx/charts off the landing critical path", "kind": "improvement", "impact": "high", "effort": "medium" },
+    { "id": "ux-live-audit", "title": "Run authenticated multi-viewport UX audit (dashboard clarity, forms, empty/loading/error states, a11y) vs Linear/Stripe/Vercel benchmarks", "kind": "improvement", "impact": "high", "effort": "medium" },
+    { "id": "ux-a11y-baseline", "title": "Establish accessibility baseline (focus rings, contrast on muted text tokens, aria for charts, reduced-motion)", "kind": "improvement", "impact": "medium", "effort": "medium" }
+  ]
+}

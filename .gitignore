@@ -6,3 +6,7 @@ runtime/*.tmp
 
 *.log
 *.swp
+
+# Claude Code: lokale Einstellungen und Worktrees (maschinengebunden)
+.claude/settings.local.json
+.claude/worktrees/

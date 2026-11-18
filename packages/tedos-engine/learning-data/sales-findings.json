@@ -1,0 +1,24 @@
+{
+  "source": "sales-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "evidence": { "source": "local /Sales exports (heycarbo_buying_scores.csv, heycarbo_aie_scored.json)", "confidence": "medium (real but possibly stale/manual; no live CRM connector — set CRM_API_KEY per connectors-setup.md)" },
+      "funnel": "7 scored accounts, ALL 'Now 0–30 days (active signal)'. Tier A: 1 (GRAFE). Segment: plastics/masterbatch (Kunststoff) manufacturers under automotive/industrial supplier pressure — strong Scope-3 fit.",
+      "combinedArrPotential": "≈ €100k–200k ARR across the 7 active accounts",
+      "rankedOutreachCandidates": [
+        { "rank": 1, "company": "GRAFE GmbH & Co. KG", "tier": "A", "score": 84, "estArr": "30–55k EUR", "timing": "now", "draft": "marketing/outreach/2026-06-25-grafe.md (Brand-Guardian ok)" },
+        { "rank": 2, "company": "KRAIBURG TPE GmbH & Co. KG", "tier": "B", "score": 81, "estArr": "30–55k EUR", "timing": "now" },
+        { "rank": 3, "company": "Gear Motion GmbH", "tier": "B", "score": 78, "estArr": "12–20k EUR", "timing": "now" },
+        { "rank": 4, "company": "almaak international GmbH", "tier": "B", "score": 77, "estArr": "18–30k EUR", "timing": "now" },
+        { "rank": 5, "company": "Eurotec Technische Kunststoffe GmbH", "tier": "B", "score": 74, "estArr": "12–20k EUR", "timing": "now" }
+      ],
+      "goalCandidates": [
+        { "id": "outreach-grafe", "title": "Send GRAFE outreach (draft ready, approval-gated)", "kind": "feature", "risk": "medium", "revenueImpact": "HIGH — Tier A, 30–55k ARR, active signal", "leadCount": 1, "note": "needs your approval-to-send + demo calendar URL" },
+        { "id": "outreach-tier-b-batch", "title": "Prepare drafts for the 6 Tier-B active accounts", "kind": "feature", "risk": "medium", "revenueImpact": "HIGH — ≈70–145k ARR combined, all 'now'", "leadCount": 6 },
+        { "id": "lead-gen-expand", "title": "Refill pipeline — only 7 scored accounts; expand harvest (automotive/Maschinenbau/Chemie/Logistik/Verpackung)", "kind": "feature", "risk": "low", "revenueImpact": "HIGH — pipeline depth", "leadCount": 0 }
+      ]
+    }
+  ]
+}

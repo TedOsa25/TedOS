@@ -1,0 +1,17 @@
+{
+  "source": "marketing-watchdog",
+  "project": "HeyCarbo",
+  "entries": [
+    {
+      "date": "2026-06-25",
+      "angle": "Customer pressure (not regulation) drives Scope 3 — verifiable, durable, no regulatory-date claims",
+      "draft": "marketing/linkedin/2026-06-25-customer-pressure.md",
+      "brandGuardian": "ok (0 issues)",
+      "status": "DRAFT — approval-gated (no organic LinkedIn connector; publish manual)",
+      "goalCandidates": [
+        { "id": "content-publish-2026-06-25-li2", "title": "Publish 'customer pressure' LinkedIn post", "kind": "feature", "risk": "medium", "businessImpact": "reach/leads — needs connector + approval" },
+        { "id": "case-study-pipeline", "title": "Source 1-2 customer testimonials/case studies (landing lacks social proof)", "kind": "feature", "risk": "medium", "businessImpact": "HIGH — conversion social proof; needs real customer consent/quotes" }
+      ]
+    }
+  ]
+}

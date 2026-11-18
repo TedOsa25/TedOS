@@ -1,0 +1,5 @@
+{
+  "note": "Per-post social performance, collected 24h after publishing ONLY when a LinkedIn/Instagram organic analytics connector exists. None is currently configured (only paid meta-ads is available) — metrics are entered manually until then. No fabricated metrics.",
+  "metrics": ["impressions", "reach", "comments", "shares", "saves", "clickRate", "websiteTraffic", "demoBookings", "trialSignups", "newFollowers"],
+  "posts": []
+}
