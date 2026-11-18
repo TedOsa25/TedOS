@@ -47,7 +47,7 @@
     "test:distribution-engine": "tsx src/distribution-engine.test.ts",
     "test:distribution-analytics": "tsx src/distribution-analytics.test.ts",
     "test:growth": "tsx src/growth-engine.test.ts",
-    "test": "npm run test:research && npm run test:loop && npm run test:skill && npm run test:connector && npm run test:reasoner && npm run test:learning && npm run test:feedback && npm run test:routing && npm run test:connectors && npm run test:projects && npm run test:watchdogs && npm run test:prioritization && npm run test:approvals && npm run test:brand && npm run test:evidence && npm run test:business && npm run test:attribution && npm run test:outcome && npm run test:dashboard && npm run test:outcome-prioritization && npm run test:distribution-queue && npm run test:distribution-engine && npm run test:distribution-analytics && npm run test:growth && npm run test:brand-profile && npm run test:revenue && npm run test:sending && npm run test:batch && npm run test:footer && npm run test:unsubscribe && npm run test:approval && npm run test:preflight && npm run test:approve-select && npm run test:list-unsubscribe && npm run test:inbox-classify && npm run test:followup && npm run test:experiment && npm run test:zeit",
+    "test": "npm run test:research && npm run test:loop && npm run test:skill && npm run test:connector && npm run test:reasoner && npm run test:learning && npm run test:feedback && npm run test:routing && npm run test:connectors && npm run test:projects && npm run test:watchdogs && npm run test:prioritization && npm run test:approvals && npm run test:brand && npm run test:evidence && npm run test:business && npm run test:attribution && npm run test:outcome && npm run test:dashboard && npm run test:outcome-prioritization && npm run test:distribution-queue && npm run test:distribution-engine && npm run test:distribution-analytics && npm run test:growth && npm run test:brand-profile && npm run test:revenue && npm run test:sending && npm run test:batch && npm run test:footer && npm run test:unsubscribe && npm run test:approval && npm run test:preflight && npm run test:approve-select && npm run test:list-unsubscribe && npm run test:inbox-classify && npm run test:followup && npm run test:experiment && npm run test:zeit && npm run test:sales",
     "revenue": "tsx src/revenue-demo.ts",
     "test:brand-profile": "tsx src/revenue/brand-profile.test.ts",
     "test:revenue": "tsx src/revenue/revenue-engine.test.ts",
@@ -77,7 +77,9 @@
     "unsubscribe:sync": "tsx src/revenue/unsubscribe-sync.ts",
     "test:list-unsubscribe": "tsx src/revenue/list-unsubscribe.test.ts",
     "test:inbox-classify": "tsx src/revenue/inbox-classify.test.ts",
-    "sales:shadow": "node --import tsx src/sales/run.ts"
+    "sales": "node --import tsx src/sales/cli.ts",
+    "sales:shadow": "node --import tsx src/sales/cli.ts ingest",
+    "test:sales": "tsx --test src/sales/sales.test.ts"
   },
   "keywords": [],
   "author": "",
