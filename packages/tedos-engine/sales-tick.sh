@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 export TZ="Europe/Berlin"
 export REVENUE_BRAND="heyaudit"
+SALES_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)"; export SALES_COMMIT
 export SALES_STATE_DIR="${SALES_STATE_DIR:-$HOME/dev/tedos-runtime/heyaudit-sales}"
 # Outbound runtime: already-contacted leads + cross-brand suppression (read-only).
 OUT="$HOME/Desktop/TedOS/ai-os/packages/tedos-engine/runtime"

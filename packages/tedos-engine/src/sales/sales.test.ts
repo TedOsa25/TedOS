@@ -305,3 +305,24 @@ test("parseMail routes replies only for known contacts", () => {
   assert.equal(parseMail(m, new Set(["fremd@x.de"]))[0]?.kind, "reply");
   assert.equal(parseMail({ ...m, text: "Bitte abmelden" }, new Set(["fremd@x.de"]))[0]?.kind, "opt_out");
 });
+
+test("demo request in the exact live format (noreply@, via hallo@) → exactly one task; replay adds nothing; probe stays internal", () => {
+  // Body copied from the real notification of 12.05.2026 (format), with external test data.
+  const body = (company: string, email: string, phone: string, dbId: string) =>
+    `Neue Demo-Anfrage über das Website-Formular.\n\nName: Test Person\nFirma: ${company}\nE-Mail: ${email}\nTelefon: ${phone}\nBranche: gebaeudereinigung\nMitarb.: 11-50\nStandorte: 2\nQuelle: hero_demo\n\nNachricht:\nBitte Rückruf.\n\nDB-ID: ${dbId}\n\n— HeyAudit`;
+  const mail = (company: string, email: string, phone: string, dbId: string, id: string): RawMail => ({
+    messageId: id, from: "HeyAudit <noreply@heyaudit.de>", subject: `Neue Demo-Anfrage — HeyAudit (${company})`, date: "2026-11-16T09:00:00Z", text: body(company, email, phone, dbId),
+  });
+  const s = fresh();
+  const real = parseMail(mail("Funkel Gebäudeservice", "info@funkel-gs.de", "0171 1111111", "11111111-2222-3333-4444-555555555555", "a"), new Set())[0];
+  assert.equal(real?.id, "demo-request:11111111-2222-3333-4444-555555555555");
+  s.ingest([real as SalesEvent], T0);
+  assert.deepEqual(open(s).map((t) => `${t.type}:${t.id}`), ["callback:callback:demo-request:11111111-2222-3333-4444-555555555555"]);
+  // Same mail again (IMAP replay) and a forwarded copy with another Message-ID → same DB id → no second task.
+  s.ingest([parseMail(mail("Funkel Gebäudeservice", "info@funkel-gs.de", "0171 1111111", "11111111-2222-3333-4444-555555555555", "b"), new Set())[0] as SalesEvent], h(1));
+  assert.equal(open(s).length, 1);
+  // The real probe from 12.05.2026 (heyaudit.de address) is parsed but never becomes a lead.
+  const probe = parseMail(mail("HeyAudit Migration Verification", "post-migration-probe@heyaudit.de", "+49 000 0000000", "7ccc4f76-068c-46ce-99a4-c362480428cd", "c"), new Set())[0];
+  s.ingest([probe as SalesEvent], h(2));
+  assert.equal(open(s).length, 1);
+});

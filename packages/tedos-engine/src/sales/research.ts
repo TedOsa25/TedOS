@@ -48,7 +48,8 @@ export function placesSearch(apiKey: string): PlacesSearch {
     if (!res.ok) {
       let why = "";
       try { const j = (await res.json()) as { error?: { status?: string; message?: string } }; why = `${j.error?.status ?? ""} ${j.error?.message ?? ""}`.replace(/AIza[\w-]+/g, "***").slice(0, 200); } catch { /* no body */ }
-      throw new Error(`Places HTTP ${res.status} ${why}`.trim());
+      const hint = res.status === 403 && /PERMISSION_DENIED/.test(why) ? " — Schlüssel gültig, Projekt ohne aktives Abrechnungskonto? (Stand 18.11.: Rechnungskonto geschlossen)" : "";
+      throw new Error(`Places HTTP ${res.status} ${why}${hint}`.trim());
     }
     const j = (await res.json()) as { places?: Array<Record<string, any>> };
     return (j.places ?? []).map((p) => ({

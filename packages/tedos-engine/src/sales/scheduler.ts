@@ -61,6 +61,11 @@ export function isDue(def: JobDef, st: JobState | undefined, now: Date): { due: 
 }
 
 /** Run one job with bookkeeping. Never throws. */
+function commitTag(): { commit?: string } {
+  const c = process.env.SALES_COMMIT;
+  return c && /^[0-9a-f]{7,40}$/.test(c) ? { commit: c } : {};
+}
+
 export async function runJob(store: SalesStore, def: JobDef, now: Date, trigger: RunRecord["trigger"], slot?: string): Promise<RunRecord> {
   const jobs = store.jobs();
   const st: JobState = jobs[def.name] ?? { name: def.name, paused: false, consecutiveFailures: 0 };
@@ -69,7 +74,7 @@ export async function runJob(store: SalesStore, def: JobDef, now: Date, trigger:
   let rec: RunRecord;
   try {
     const result = await def.run({ now, trigger });
-    rec = { job: def.name, runId, startedAt: now.toISOString(), durationMs: Date.now() - t0, outcome: "ok", result, trigger };
+    rec = { job: def.name, runId, startedAt: now.toISOString(), durationMs: Date.now() - t0, outcome: "ok", result, trigger, ...commitTag() };
     st.lastSuccessAt = new Date().toISOString();
     st.lastResult = result;
     st.consecutiveFailures = 0;
@@ -84,11 +89,11 @@ export async function runJob(store: SalesStore, def: JobDef, now: Date, trigger:
       st.deadLetter = { at: new Date().toISOString(), error: msg, attempts: st.consecutiveFailures };
       delete st.nextRetryAt;
       if (slot) st.lastSlot = slot; // don't re-fire this slot after reset
-      rec = { job: def.name, runId, startedAt: now.toISOString(), durationMs: Date.now() - t0, outcome: "dead_letter", error: msg, trigger };
+      rec = { job: def.name, runId, startedAt: now.toISOString(), durationMs: Date.now() - t0, outcome: "dead_letter", error: msg, trigger, ...commitTag() };
     } else {
       const backoffMin = Math.min(120, 5 * 2 ** (st.consecutiveFailures - 1));
       st.nextRetryAt = new Date(Date.now() + backoffMin * 60_000).toISOString();
-      rec = { job: def.name, runId, startedAt: now.toISOString(), durationMs: Date.now() - t0, outcome: "error", error: msg, trigger };
+      rec = { job: def.name, runId, startedAt: now.toISOString(), durationMs: Date.now() - t0, outcome: "error", error: msg, trigger, ...commitTag() };
     }
   }
   st.lastRunAt = now.toISOString();
@@ -102,7 +107,7 @@ export async function runJob(store: SalesStore, def: JobDef, now: Date, trigger:
 
 export async function tick(store: SalesStore, defs: JobDef[], now: Date, only?: string): Promise<RunRecord[]> {
   if (store.globallyPaused()) {
-    const r: RunRecord = { job: "*", runId: randomUUID(), startedAt: now.toISOString(), durationMs: 0, outcome: "skipped", result: "global pausiert (PAUSE-Datei)", trigger: "schedule" };
+    const r: RunRecord = { job: "*", runId: randomUUID(), startedAt: now.toISOString(), durationMs: 0, outcome: "skipped", result: "global pausiert (PAUSE-Datei)", trigger: "schedule", ...commitTag() };
     store.append("runs.jsonl", r);
     return [r];
   }

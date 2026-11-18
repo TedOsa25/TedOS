@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     case "tick": {
       try {
         const recs = await store.withLock(() => tick(store, sys.jobs(), now, arg(args, "--job")));
-        for (const r of recs) console.log(`${r.startedAt} ${r.job} ${r.outcome} ${r.durationMs}ms ${r.result ?? r.error ?? ""}`);
+        for (const r of recs) console.log(`${r.startedAt} ${r.job} ${r.outcome} ${r.durationMs}ms${r.commit ? ` @${r.commit}` : ""} ${r.result ?? r.error ?? ""}`);
         if (!recs.length) console.log(`${now.toISOString()} tick: nichts fällig`);
       } catch (e) {
         if (e instanceof LockBusyError) {

@@ -71,6 +71,8 @@ export interface RunRecord {
   result?: string;
   error?: string;
   trigger: "schedule" | "event" | "manual" | "retry";
+  /** git commit of the code that ran (SALES_COMMIT, set by sales-tick.sh). */
+  commit?: string;
 }
 
 export interface ResearchTarget {
