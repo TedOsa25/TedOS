@@ -17,6 +17,7 @@
 //   npx tsx src/revenue/send-test.ts
 
 import nodemailer from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
 import { resolveCname, resolveTxt } from "node:dns/promises";
 import { normalize } from "./accounts.js";
 import { buildOpportunity } from "./revenue-engine.js";
@@ -101,7 +102,10 @@ async function main() {
   }
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) abort("SMTP nicht konfiguriert — SMTP_HOST/USER/PASS fehlen.");
 
-  const transporter = nodemailer.createTransport({
+  // Options kept byte-identical to sending.ts (see transport-diag.ts). Declared as a
+  // variable so the pool-only keys (inert with pool:false) don't trip nodemailer's
+  // overload resolution — this was the long-standing TS2769 at this call site.
+  const transportOptions = {
     host: process.env.SMTP_HOST,
     port,
     secure, // 465 → TLS from start
@@ -113,7 +117,8 @@ async function main() {
     connectionTimeout: 15000,
     greetingTimeout: 10000,
     socketTimeout: 20000,
-  });
+  };
+  const transporter = nodemailer.createTransport(transportOptions as SMTPTransport.Options);
 
   // 1) VERIFY connection + auth BEFORE sending. On failure → abort, no mail.
   const tVerify = now();
