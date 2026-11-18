@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  HeyAudit Sales — gemeinsamer Scheduler (Europe/Berlin), Tick alle 5 Minuten.
+  Liest Postfach ted@heyaudit.de NUR LESEND, recherchiert werktags, schreibt Aufgaben/Berichte.
+  Versendet nichts, schaltet nichts, ändert keine Budgets.
+  Zustand + Aufgaben: ~/dev/tedos-runtime/heyaudit-sales/ (AUFGABEN.md, STATUS.md, berichte/)
+  Laden:   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.heyaudit.sales.plist
+  Pause:   npm run sales -- pause        (oder launchctl bootout gui/$(id -u)/com.heyaudit.sales)
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.heyaudit.sales</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/tedosammor/dev/tedos-sales/packages/tedos-engine/sales-tick.sh</string>
+    <string>tick</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/tedosammor/dev/tedos-sales/packages/tedos-engine</string>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>Nice</key><integer>5</integer>
+  <key>EnvironmentVariables</key><dict><key>TZ</key><string>Europe/Berlin</string></dict>
+  <key>StandardOutPath</key><string>/Users/tedosammor/dev/tedos-runtime/heyaudit-sales/launchd.log</string>
+  <key>StandardErrorPath</key><string>/Users/tedosammor/dev/tedos-runtime/heyaudit-sales/launchd.log</string>
+</dict>
+</plist>
