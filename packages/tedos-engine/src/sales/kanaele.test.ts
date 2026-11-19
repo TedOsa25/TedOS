@@ -38,7 +38,9 @@ test("partner targets: only sourced entries survive; drafts by priority, never t
   assert.deepEqual(naechsteEntwuerfe(ziele, b, 2).map((z) => z.id), ["fachblatt"]);
   const e = partnerEntwurf(ziele[0]!);
   assert.match(e.text, /Guten Tag/);
-  assert.match(e.text, /Vorteil für Ihre Mitgliedsbetriebe/);
+  assert.match(e.text, /Praxisformat für Ihre Mitgliedsbetriebe/);
+  assert.match(e.text, /Partnerprogramm/);
+  assert.ok(!/39 €|Browser|Viele Grüße/.test(e.text), "no price, no feature pitch, closing comes from the signature");
   assert.equal(e.an, "info@die-gebaeudedienstleister.de");
 });
 
@@ -122,17 +124,23 @@ test("growth job never runs the publishing executor", () => {
 
 // ── Partner-Versand ─────────────────────────────────────────────────────
 const MO_10 = new Date("2026-11-23T09:00:00Z"); // Monday 10:00 Berlin
-function versandSys(sent: Array<{ an: string; betreff: string; text: string }>, fail = false) {
+type Gesendet = { an: string; betreff: string; text: string; html?: string };
+function versandSys(sent: Gesendet[], fail = false, frueher: Record<string, string[]> = {}, signatur = true) {
   const dir = mkdtempSync(join(tmpdir(), "sales-versand-"));
   const s = new SalesSystem(new SalesStore(dir), { capacity: 6, researchLimit: 10, blocklists: [], igRuntime: "/nonexistent-ig", partnerPerDay: 5 },
-    async (m) => { if (fail) throw new Error("SMTP kaputt"); sent.push(m); return `<id${sent.length}@x>`; });
+    async (m) => { if (fail) throw new Error("SMTP kaputt"); sent.push(m); return `<id${sent.length}@x>`; },
+    async (d) => frueher[d] ?? []);
   s.store.write("partner-ziele.json", ZIELE);
+  if (signatur) {
+    writeFileSync(join(dir, "signatur.html"), '<div class="gmail_signature">Viele Grüße<br>Ted Osammor<img src="https://x/banner.jpg"></div>');
+    writeFileSync(join(dir, "signatur.txt"), "Viele Grüße\nTed Osammor");
+  }
   s.jobPartner(MO_10);
   return s;
 }
 
 test("partner mail: nothing without channel approval or single approval", async () => {
-  const sent: Array<{ an: string; betreff: string; text: string }> = [];
+  const sent: Gesendet[] = [];
   const s = versandSys(sent);
   assert.match(await s.jobPartnerVersand(MO_10), /keine Kanalfreigabe/);
   s.store.write("freigaben.json", [{ kanal: "partner_mail", zweck: "erstkontakt", proTag: 3, belegt: "Test" }]);
@@ -141,7 +149,7 @@ test("partner mail: nothing without channel approval or single approval", async 
 });
 
 test("partner mail: approved email partner sent once with exact text; form partner never; volume cap", async () => {
-  const sent: Array<{ an: string; betreff: string; text: string }> = [];
+  const sent: Gesendet[] = [];
   const s = versandSys(sent);
   s.store.write("freigaben.json", [{ kanal: "partner_mail", zweck: "erstkontakt", proTag: 1, belegt: "Test" }]);
   s.approvals.approve("sales:partner:biv");
@@ -152,6 +160,8 @@ test("partner mail: approved email partner sent once with exact text; form partn
   assert.equal(sent[0]?.an, "info@die-gebaeudedienstleister.de");
   assert.match(sent[0]!.text, /^Guten Tag,/);
   assert.ok(!/---|Warum:|Beleg:/.test(sent[0]!.text), "internal notes are never sent");
+  assert.match(sent[0]!.text, /Viele Grüße\nTed Osammor$/, "plain text ends with the signature");
+  assert.match(sent[0]!.html ?? "", /<p>Guten Tag,<\/p>[\s\S]*gmail_signature[\s\S]*banner\.jpg/, "HTML carries the Gmail signature");
   assert.match(r, /Tagesvolumen 1 erreicht/);
   await s.jobPartnerVersand(new Date(MO_10.getTime() + 3_600_000));
   assert.equal(sent.length, 1, "cap holds the same day; biv never twice");
@@ -165,7 +175,7 @@ test("partner mail: approved email partner sent once with exact text; form partn
 });
 
 test("partner mail: weekend/night, blocklisted domain, SMTP crash never re-sends", async () => {
-  const sent: Array<{ an: string; betreff: string; text: string }> = [];
+  const sent: Gesendet[] = [];
   const s = versandSys(sent, true);
   s.store.write("freigaben.json", [{ kanal: "partner_mail", zweck: "erstkontakt", proTag: 3, belegt: "Test" }]);
   s.approvals.approve("sales:partner:biv");
@@ -180,5 +190,30 @@ test("partner mail: weekend/night, blocklisted domain, SMTP crash never re-sends
   const r = await s.jobPartnerVersand(new Date(MO_10.getTime() + 600_000));
   assert.match(r, /fachblatt: Adresse\/Domain auf Sperrliste/);
   assert.ok(!/biv/.test(r), "a crashed send is not retried");
+  assert.equal(sent.length, 0);
+});
+
+test("partner mail: domain already in Sent folder (Ted's own mail) → never sent, marked contacted", async () => {
+  const sent: Gesendet[] = [];
+  const s = versandSys(sent, false, { "die-gebaeudedienstleister.de": ["2026-11-18 biv@die-gebaeudedienstleister.de"] });
+  s.store.write("freigaben.json", [{ kanal: "partner_mail", zweck: "erstkontakt", proTag: 3, belegt: "Test" }]);
+  s.approvals.approve("sales:partner:biv");
+  s.approvals.approve("sales:partner:fachblatt");
+  const r = await s.jobPartnerVersand(MO_10);
+  assert.match(r, /biv: übersprungen, schon angeschrieben \(2026-11-18/);
+  assert.deepEqual(sent.map((m) => m.an), ["redaktion@fachblatt.example"]);
+  const b = s.store.read<PartnerBestand>("partner.json", {});
+  assert.equal(b.biv?.status, "kontaktiert");
+  assert.match(await s.jobPartnerVersand(new Date(MO_10.getTime() + 600_000)), /nichts freigegeben/, "never retried");
+});
+
+test("partner mail: no signature file or no Sent check → nothing sent", async () => {
+  const sent: Gesendet[] = [];
+  const s = versandSys(sent, false, {}, false);
+  s.store.write("freigaben.json", [{ kanal: "partner_mail", zweck: "erstkontakt", proTag: 3, belegt: "Test" }]);
+  s.approvals.approve("sales:partner:biv");
+  assert.match(await s.jobPartnerVersand(MO_10), /Signatur fehlt/);
+  const ohne = new SalesSystem(s.store, s.cfg, async () => "x");
+  await assert.rejects(ohne.jobPartnerVersand(MO_10), /Gesendet-Ordner/);
   assert.equal(sent.length, 0);
 });

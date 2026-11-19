@@ -142,3 +142,32 @@ export async function fetchNewMail(cfg: ImapConfig, cursor: Cursor, backfillDays
   if (socketError) throw new Error(`IMAP-Socketfehler: ${socketError}`);
   return { mails, cursor: next };
 }
+
+/**
+ * Duplicate guard for outbound partner mail: every mail in the Sent folder of
+ * ted@heyaudit.de (the founder's manual mails included) to a recipient of this
+ * domain within `days`. Read-only. Returns "YYYY-MM-DD an@domain" lines.
+ */
+export async function gesendetAnDomain(cfg: ImapConfig, domain: string, days = 365): Promise<string[]> {
+  const d = domain.trim().toLowerCase();
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) throw new Error(`ungültige Domain ${domain}`);
+  const client = new ImapFlow({ host: cfg.host, port: cfg.port, secure: true, auth: { user: cfg.user, pass: cfg.pass }, logger: false, socketTimeout: 60_000, greetingTimeout: 30_000 });
+  client.on("error", () => undefined);
+  await client.connect();
+  try {
+    const sent = (await client.list()).find((b) => b.specialUse === "\\Sent")?.path;
+    if (!sent) throw new Error("Gesendet-Ordner nicht gefunden");
+    const lock = await client.getMailboxLock(sent, { readOnly: true });
+    try {
+      const uids = ((await client.search({ to: d, since: new Date(Date.now() - days * 86400000) }, { uid: true })) || []) as number[];
+      const out: string[] = [];
+      if (!uids.length) return out;
+      for await (const msg of client.fetch({ uid: uids.slice(-20).join(",") }, { uid: true, envelope: true }, { uid: true })) {
+        const hits = [...(msg.envelope?.to ?? []), ...(msg.envelope?.cc ?? [])].map((a) => a.address?.toLowerCase() ?? "").filter((a) => a.endsWith(`@${d}`) || a.endsWith(`.${d}`));
+        const day = msg.envelope?.date instanceof Date ? msg.envelope.date.toISOString().slice(0, 10) : "?";
+        for (const h of hits) out.push(`${day} ${h}`);
+      }
+      return out;
+    } finally { lock.release(); }
+  } finally { await client.logout().catch(() => undefined); }
+}

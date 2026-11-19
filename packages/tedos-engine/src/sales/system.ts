@@ -9,11 +9,11 @@ import { promisify } from "node:util";
 import { ApprovalQueue } from "../approval-queue.js";
 import { JsonFileStorage } from "../storage.js";
 import { buildBody, promptVersion, refineWithModel } from "./drafts.js";
-import { fetchNewMail, imapConfigFromEnv, type Cursor } from "./imap-source.js";
+import { fetchNewMail, gesendetAnDomain, imapConfigFromEnv, type Cursor } from "./imap-source.js";
 import type { RawMail } from "./inbound.js";
 import { parseMail } from "./inbound.js";
 import type { SalesEvent } from "./model.js";
-import { berlinDay, berlinParts, berlinWeek, normalizeEmail, validateEvent } from "./model.js";
+import { berlinDay, berlinParts, berlinWeek, normalizeEmail, registrableDomain, validateEvent } from "./model.js";
 import { acquisitionPlan, dailyBrief, funnel, learningProposals, readMetaSpend, weeklyReport } from "./reports.js";
 import { loadBlocklist, pageFetch, placesSearch, runResearch, type ResearchState } from "./research.js";
 import type { AccountState } from "./rules.js";
@@ -52,7 +52,21 @@ export function configFromEnv(): Config {
 export interface Freigabe { kanal: string; zweck: string; proTag: number; bis?: string; belegt: string }
 
 /** Mail transport (injectable for tests). Returns the Message-ID. */
-export type MailSender = (m: { an: string; betreff: string; text: string }) => Promise<string>;
+export type MailSender = (m: { an: string; betreff: string; text: string; html?: string }) => Promise<string>;
+/** Returns earlier mails from the Sent folder to this domain ("YYYY-MM-DD addr"); empty = never written. */
+export type GesendetPruefer = (domain: string) => Promise<string[]>;
+
+export function gesendetPrueferFromEnv(): GesendetPruefer | undefined {
+  const cfg = imapConfigFromEnv();
+  return cfg ? (d) => gesendetAnDomain(cfg, d) : undefined;
+}
+
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+/** Approved plain text → simple HTML paragraphs (links clickable) + the Gmail signature HTML. */
+export function partnerHtml(text: string, signaturHtml: string): string {
+  const paras = text.trim().split(/\n{2,}/).map((p) => `<p>${esc(p).replace(/\n/g, "<br>").replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')}</p>`);
+  return `<div dir="ltr">${paras.join("")}${signaturHtml}</div>`;
+}
 
 export function smtpSenderFromEnv(): MailSender | undefined {
   const user = process.env.SALES_SMTP_USER ?? process.env.SALES_IMAP_USER;
@@ -67,7 +81,7 @@ export function smtpSenderFromEnv(): MailSender | undefined {
       connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 30000,
     });
     try {
-      const info = await t.sendMail({ from: `Ted Osammor <${user}>`, to: m.an, subject: m.betreff, text: m.text });
+      const info = await t.sendMail({ from: `Ted Osammor <${user}>`, to: m.an, subject: m.betreff, text: m.text, ...(m.html ? { html: m.html } : {}) });
       return String(info.messageId ?? "");
     } finally { t.close(); }
   };
@@ -75,7 +89,7 @@ export function smtpSenderFromEnv(): MailSender | undefined {
 
 export class SalesSystem {
   readonly approvals: ApprovalQueue;
-  constructor(readonly store: SalesStore, readonly cfg: Config, readonly sendMail: MailSender | undefined = undefined) {
+  constructor(readonly store: SalesStore, readonly cfg: Config, readonly sendMail: MailSender | undefined = undefined, readonly gesendetPruefer: GesendetPruefer | undefined = undefined) {
     this.approvals = new ApprovalQueue(new JsonFileStorage(join(store.dir, "approvals")));
   }
 
@@ -354,6 +368,13 @@ export class SalesSystem {
     const kandidaten = ziele.filter((z) => bestand[z.id]?.status === "entwurf" && approvals.get(`sales:partner:${z.id}`)?.status === "approved");
     if (!kandidaten.length) return "Partner-Versand: nichts freigegeben";
     if (!this.sendMail) throw new Error("Partner-Versand: kein SMTP-Zugang (SALES_IMAP_USER/PASS)");
+    if (!this.gesendetPruefer) throw new Error("Partner-Versand: keine Prüfung des Gesendet-Ordners möglich (IMAP) — kein Versand");
+    // Gmail signature of ted@heyaudit.de (contains the closing). Runtime only — the repo is public.
+    const sigHtmlPath = join(this.store.dir, "signatur.html");
+    const sigTextPath = join(this.store.dir, "signatur.txt");
+    if (!existsSync(sigHtmlPath) || !existsSync(sigTextPath)) return "Partner-Versand: Signatur fehlt (signatur.html/.txt im Runtime-Ordner) — nichts gesendet";
+    const sigHtml = readFileSync(sigHtmlPath, "utf8");
+    const sigText = readFileSync(sigTextPath, "utf8").trim();
     const snapDir = join(this.store.dir, "sperrlisten");
     const gesperrt = loadBlocklist(existsSync(snapDir) ? readdirSync(snapDir).map((f) => join(snapDir, f)) : []);
     const heute = berlinDay(now);
@@ -364,10 +385,19 @@ export class SalesSystem {
       const mail = freigegebeneMail(approvals.get(goalId)?.description ?? "");
       const chk = darfPartnerSenden({ ziel: z, stand: bestand[z.id], freigabeStatus: approvals.get(goalId)?.status, mail, kanalFreigabe: kanal, heute, wochentag: p.weekday, heuteGesendet: used, gesperrt });
       if (!chk.ok || !mail) { out.push(`${z.id}: ${chk.warum}`); if (/Tagesvolumen/.test(chk.warum)) break; continue; }
+      // Never write twice: Ted's own mails from ted@heyaudit.de count as contact.
+      const dom = registrableDomain(mail.an);
+      const frueher = dom ? await this.gesendetPruefer(dom) : ["Domain unklar"];
+      if (frueher.length) {
+        bestand[z.id] = { ...(bestand[z.id] as NonNullable<PartnerBestand[string]>), status: "kontaktiert", seit: now.toISOString(), notiz: `bereits angeschrieben (Gesendet): ${frueher.slice(0, 3).join(", ")}` };
+        this.store.write("partner.json", bestand);
+        out.push(`${z.id}: übersprungen, schon angeschrieben (${frueher[0]})`);
+        continue;
+      }
       bestand[z.id] = { ...(bestand[z.id] as NonNullable<PartnerBestand[string]>), status: "sendet", seit: now.toISOString() };
       this.store.write("partner.json", bestand);
       this.store.append("ausgefuehrt.jsonl", { day: heute, kanal: PARTNER_KANAL, zweck: PARTNER_ZWECK, ziel: z.id, an: mail.an, at: now.toISOString(), freigabe: kanal.belegt });
-      const messageId = await this.sendMail(mail);
+      const messageId = await this.sendMail({ an: mail.an, betreff: mail.betreff, text: `${mail.text}\n\n${sigText}`, html: partnerHtml(mail.text, sigHtml) });
       bestand[z.id] = { ...(bestand[z.id] as NonNullable<PartnerBestand[string]>), status: "kontaktiert", seit: new Date().toISOString(), gesendet: { at: new Date().toISOString(), an: mail.an, messageId } };
       this.store.write("partner.json", bestand);
       this.approvals.markImplemented(goalId);

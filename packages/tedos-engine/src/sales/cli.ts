@@ -25,7 +25,7 @@ import { join } from "node:path";
 import { berlinDay, fromPilotEvent, normalizeEmail, validateEvent, type SalesEvent } from "./model.js";
 import { setPaused, resetJob, tick } from "./scheduler.js";
 import { LockBusyError, SalesStore } from "./store.js";
-import { configFromEnv, SalesSystem, smtpSenderFromEnv } from "./system.js";
+import { configFromEnv, gesendetPrueferFromEnv, SalesSystem, smtpSenderFromEnv } from "./system.js";
 import { igAntwortEreignis, normHandle, pruefeIgAntwort } from "./kanaele.js";
 import type { PartnerBestand, PartnerStatus } from "./partner.js";
 
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   const [cmd = "status", ...args] = process.argv.slice(2);
   if (process.env.REVENUE_BRAND && process.env.REVENUE_BRAND !== "heyaudit") throw new Error("Sales-System ist nur für HeyAudit (REVENUE_BRAND≠heyaudit)");
   const store = new SalesStore(STATE);
-  const sys = new SalesSystem(store, configFromEnv(), smtpSenderFromEnv());
+  const sys = new SalesSystem(store, configFromEnv(), smtpSenderFromEnv(), gesendetPrueferFromEnv());
   const now = new Date();
 
   switch (cmd) {

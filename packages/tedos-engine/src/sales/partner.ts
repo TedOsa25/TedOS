@@ -8,7 +8,6 @@
 // from a partner domain are recognised by inbound and become a partner task.
 
 import type { ApprovalInput } from "../approval-queue.js";
-import { DEMO_BOOKING_URL } from "./drafts.js";
 import type { RawMail } from "./inbound.js";
 import { registrableDomain } from "./model.js";
 
@@ -84,14 +83,37 @@ export function ladeZiele(raw: unknown): { ziele: PartnerZiel[]; verworfen: numb
   return { ziele, verworfen: arr.length - ziele.length };
 }
 
-const ANGEBOT: Record<PartnerTyp, string> = {
-  verband: "ein Vorteil für Ihre Mitgliedsbetriebe, etwa vergünstigte Konditionen für HeyAudit, oder ein kurzer Fachbeitrag zur digitalen Einsatzplanung und Zeiterfassung",
-  grosshandel: "eine Empfehlungspartnerschaft: Ihre Kunden aus der Gebäudereinigung erhalten HeyAudit zu Sonderkonditionen, und Sie haben ein zusätzliches Angebot für Ihren Außendienst",
-  hersteller: "eine Kooperation in Ihrem Händler- oder Partnerprogramm, denn digitale Einsatzplanung und Qualitätsnachweise ergänzen Ihre Maschinen und Systeme",
-  medien: "ein Praxisbeitrag für Ihre Leserinnen und Leser zu Dienstplanung, Zeiterfassung und Nachweisen gegenüber Auftraggebern, gern auch eine Anzeigenkooperation",
-  messe: "eine Teilnahme oder ein Kurzvortrag zur Digitalisierung kleiner und mittlerer Reinigungsbetriebe",
-  software: "eine gegenseitige Empfehlung oder eine Schnittstelle, da sich unsere Lösungen ergänzen",
+// Texts follow Ted's own partner mails of 18.11.2026 (Praxisformat + Partnerprogramm,
+// no prices, no feature list). The closing ("Viele Grüße / Ted Osammor") is part of
+// the Gmail signature, which is appended at send time from the runtime (never in git).
+const ANGEBOT: Record<PartnerTyp, { betreff: string; absatz: string }> = {
+  verband: {
+    betreff: "Praxisformat zur digitalen Objektorganisation für Ihre Mitgliedsbetriebe",
+    absatz: "Ich würde gerne ein kurzes Praxisformat für Ihre Mitgliedsbetriebe anbieten. An einem Beispiel zeige ich, wie kleinere und mittlere Reinigungsbetriebe Schichten, Arbeitszeiten und Qualitätskontrollen pro Objekt organisieren können. Sie hätten damit einen fertigen Baustein für einen Mitgliedstermin. Vorbereitung und Durchführung übernehme ich.\n\nWäre es möglich, das bei einem Ihrer nächsten Mitgliedstermine auszuprobieren? Falls ein Webinar oder ein bestehendes Weiterbildungsformat besser passt, würde ich mich freuen, mit Ihnen darüber zu sprechen.",
+  },
+  messe: {
+    betreff: "Anfrage Praxisvortrag zur digitalen Objektorganisation in der Gebäudereinigung",
+    absatz: "Ich würde gerne einen kurzen Praxisvortrag für Ihr Fachprogramm anbieten. An einem Beispiel zeige ich, wie kleinere und mittlere Reinigungsbetriebe Schichten, Arbeitszeiten und Qualitätskontrollen pro Objekt organisieren können. Die Besucherinnen und Besucher nehmen einen konkreten Ablauf für den eigenen Betrieb mit. Vorbereitung und Durchführung übernehme ich.\n\nWäre es möglich, so einen Beitrag in einem Ihrer Fachforen unterzubringen? Falls ein anderes Format besser passt, würde ich mich über Ihre Einschätzung und einen kurzen Austausch freuen.",
+  },
+  grosshandel: {
+    betreff: "Partnerschaftsidee für Ihre Gebäudereinigungskunden",
+    absatz: "Ich würde gerne mit Ihnen eine Empfehlungspartnerschaft ausprobieren. Wenn ein Kunde seine Abläufe digitalisieren möchte, können Sie ihm im Beratungsgespräch direkt eine passende Lösung anbieten. Bei Interesse stellen Sie kurz den Kontakt her. Demo, Einrichtung und Betreuung übernehme ich persönlich.\n\nWäre es möglich, das mit zwei oder drei passenden Betrieben zu testen? Falls ein Kundentermin oder ein gemeinsamer Workshop besser passt, würde ich mich freuen, wenn wir kurz über diese Form der Zusammenarbeit sprechen.",
+  },
+  hersteller: {
+    betreff: "Kooperationsidee für Ihre Kunden aus der Gebäudereinigung",
+    absatz: "Ich würde gerne mit Ihnen eine Kooperation ausprobieren. Viele Ihrer Kunden aus der Gebäudereinigung organisieren Einsätze, Arbeitszeiten und Qualitätskontrollen noch auf Papier oder in Tabellen. HeyAudit ergänzt Ihre Maschinen und Systeme genau an dieser Stelle. Bei Interesse stellen Sie kurz den Kontakt her. Demo, Einrichtung und Betreuung übernehme ich persönlich.\n\nWäre es möglich, das mit zwei oder drei passenden Kunden zu testen? Falls ein gemeinsamer Kundentermin oder Workshop besser passt, würde ich mich über einen kurzen Austausch freuen.",
+  },
+  medien: {
+    betreff: "Angebot Praxisbeitrag: digitale Objektorganisation in der Gebäudereinigung",
+    absatz: "Ich würde Ihnen gerne einen Praxisbeitrag für Ihre Leserinnen und Leser anbieten. An einem Beispiel zeige ich, wie ein Reinigungsbetrieb Schichten, Arbeitszeiten und Qualitätskontrollen pro Objekt organisiert und gegenüber Auftraggebern nachweist. Den Beitrag schreibe ich selbst.\n\nWäre so ein Beitrag für eine Ihrer nächsten Ausgaben interessant? Falls ein anderes Format besser passt, würde ich mich über einen kurzen Austausch freuen.",
+  },
+  software: {
+    betreff: "Idee für eine gegenseitige Empfehlung",
+    absatz: "Ich würde gerne mit Ihnen über eine gegenseitige Empfehlung sprechen. Unsere Lösungen ergänzen sich, und viele Reinigungsbetriebe suchen genau diese Kombination. Bei Interesse stellen wir uns gegenseitig kurz den Kontakt her.\n\nWäre ein kurzer Austausch dazu möglich?",
+  },
 };
+
+const PARTNERPROGRAMM = "Gerne würde ich Ihnen dazu auch unser Partnerprogramm anbieten. Für jeden von Ihnen vermittelten Kunden, der ein kostenpflichtiges HeyAudit-Abo abschließt, erhält Ihre Organisation 10 % des ersten bezahlten Jahresumsatzes. Damit können Sie Ihren Kunden oder Mitgliedern eine passende Lösung für ihren Alltag empfehlen und selbst finanziell von erfolgreichen Vermittlungen profitieren. Vorstellung, Einrichtung und laufende Betreuung übernehmen wir.\n\nWäre eine solche Partnerschaft für Sie grundsätzlich interessant? Ich würde mich freuen, wenn wir gemeinsam schauen, wie sie am besten zu Ihrem Angebot passt.";
 
 /** Name for running text: "BIV – Die Gebäudedienstleister" → "BIV"-style short form without suffixes. */
 export function kurzname(name: string): string {
@@ -99,26 +121,19 @@ export function kurzname(name: string): string {
   return k.length >= 3 ? k : name;
 }
 
-/** First-contact draft (Sie-Form, kurz, keine erfundenen Zahlen). A DRAFT — never sent here. */
+/** First-contact draft (Sie-Form, Teds Stil). Ends before the closing: the Gmail signature adds it. */
 export function partnerEntwurf(z: PartnerZiel): { an: string; betreff: string; text: string } {
   const an = z.kontaktArt === "email" ? z.kontakt ?? "—" : `Kontaktformular: ${z.kontakt ?? z.website}`;
+  const o = ANGEBOT[z.typ];
   const text = [
     "Guten Tag,",
     "",
-    `ich bin Ted Osammor, Gründer von HeyAudit. HeyAudit ist eine Software für Gebäudereinigungen: Dienstplanung, Zeiterfassung per Handy, Objekte und Qualitätsnachweise in einem System, im Browser und ab 39 € im Monat.`,
+    "ich bin Ted Osammor, Gründer von HeyAudit aus Köln. Wir haben HeyAudit speziell für Gebäudereinigungsbetriebe entwickelt. Schichtplanung, Zeiterfassung und Qualitätskontrollen laufen damit direkt am jeweiligen Objekt zusammen. Erste Reinigungsbetriebe nutzen HeyAudit bereits und sind sehr zufrieden.",
     "",
-    `Ich melde mich, weil Sie viele Reinigungsbetriebe erreichen. Denkbar wäre zum Beispiel ${ANGEBOT[z.typ]}.`,
-    "",
-    `Hätten Sie Interesse an einem kurzen Austausch (20 Minuten, online)? Einen Termin können Sie direkt hier wählen: ${DEMO_BOOKING_URL}`,
-    "",
-    "Viele Grüße",
-    "",
-    "--",
-    "Ted Osammor",
-    "Gründer · HeyAudit",
-    "heyaudit.de · ted@heyaudit.de",
+    o.absatz,
+    ...(z.typ === "software" ? [] : ["", PARTNERPROGRAMM]),
   ].join("\n");
-  return { an, betreff: "Kooperation: digitale Einsatzplanung für Gebäudereiniger", text };
+  return { an, betreff: o.betreff, text };
 }
 
 export function partnerFreigabe(z: PartnerZiel): ApprovalInput {
@@ -136,7 +151,8 @@ export function partnerFreigabe(z: PartnerZiel): ApprovalInput {
       `Warum: ${z.warum}`,
       z.programm ? `Bestehendes Programm: ${z.programm}` : "Bestehendes Programm: keins gefunden",
       `Beleg: ${z.beleg}`,
-      "Versand nur mit Freigabe (Kanal partner_mail, Zweck erstkontakt, Volumen pro Tag).",
+      "Absender ted@heyaudit.de, darunter die Gmail-Signatur (Viele Grüße, Ted Osammor, HeyAudit, Adresse, Banner).",
+      "Versand nur mit Freigabe (Kanal partner_mail, Zweck erstkontakt, Volumen pro Tag), nie an Domains, die schon im Gesendet-Ordner stehen.",
     ].join("\n"),
     businessImpact: z.prioritaet === 1 ? 8 : 6,
     revenueImpact: z.prioritaet === 1 ? 8 : 6,
