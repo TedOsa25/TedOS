@@ -85,13 +85,19 @@ export function ladeZiele(raw: unknown): { ziele: PartnerZiel[]; verworfen: numb
 }
 
 const ANGEBOT: Record<PartnerTyp, string> = {
-  verband: "einen Mitgliedervorteil für Ihre Innungsbetriebe (z. B. vergünstigter Zugang) oder einen Fachbeitrag bzw. Kurzvortrag zur digitalen Einsatz- und Zeitnachweisführung",
-  grosshandel: "eine Empfehlungspartnerschaft: Ihre Kunden aus der Gebäudereinigung bekommen HeyAudit zu Sonderkonditionen, Sie eine Provision oder ein Zusatzangebot für Ihren Außendienst",
-  hersteller: "eine Kooperation für Ihr Händler- bzw. Partnerprogramm: digitale Einsatzplanung und Qualitätsnachweise als Ergänzung zu Ihren Maschinen und Systemen",
-  medien: "einen Praxisbeitrag für Ihre Leserinnen und Leser aus der Gebäudereinigung (Dienstplanung, Zeiterfassung, Nachweise gegenüber Auftraggebern) und gern eine Anzeigenkooperation",
-  messe: "eine Teilnahme bzw. einen Kurzvortrag zur Digitalisierung kleiner und mittlerer Reinigungsbetriebe",
-  software: "eine gegenseitige Empfehlung bzw. Schnittstelle, da sich unsere Lösungen ergänzen",
+  verband: "ein Vorteil für Ihre Mitgliedsbetriebe, etwa vergünstigte Konditionen für HeyAudit, oder ein kurzer Fachbeitrag zur digitalen Einsatzplanung und Zeiterfassung",
+  grosshandel: "eine Empfehlungspartnerschaft: Ihre Kunden aus der Gebäudereinigung erhalten HeyAudit zu Sonderkonditionen, und Sie haben ein zusätzliches Angebot für Ihren Außendienst",
+  hersteller: "eine Kooperation in Ihrem Händler- oder Partnerprogramm, denn digitale Einsatzplanung und Qualitätsnachweise ergänzen Ihre Maschinen und Systeme",
+  medien: "ein Praxisbeitrag für Ihre Leserinnen und Leser zu Dienstplanung, Zeiterfassung und Nachweisen gegenüber Auftraggebern, gern auch eine Anzeigenkooperation",
+  messe: "eine Teilnahme oder ein Kurzvortrag zur Digitalisierung kleiner und mittlerer Reinigungsbetriebe",
+  software: "eine gegenseitige Empfehlung oder eine Schnittstelle, da sich unsere Lösungen ergänzen",
 };
+
+/** Name for running text: "BIV – Die Gebäudedienstleister" → "BIV"-style short form without suffixes. */
+export function kurzname(name: string): string {
+  const k = name.split(/\s+[–-]\s+|\s+\(/)[0]?.trim() ?? name;
+  return k.length >= 3 ? k : name;
+}
 
 /** First-contact draft (Sie-Form, kurz, keine erfundenen Zahlen). A DRAFT — never sent here. */
 export function partnerEntwurf(z: PartnerZiel): { an: string; betreff: string; text: string } {
@@ -101,7 +107,7 @@ export function partnerEntwurf(z: PartnerZiel): { an: string; betreff: string; t
     "",
     `ich bin Ted Osammor, Gründer von HeyAudit. HeyAudit ist eine Software für Gebäudereinigungen: Dienstplanung, Zeiterfassung per Handy, Objekte und Qualitätsnachweise in einem System, im Browser und ab 39 € im Monat.`,
     "",
-    `Ich melde mich, weil ${z.name} viele Reinigungsbetriebe erreicht. Mir schwebt ${ANGEBOT[z.typ]} vor.`,
+    `Ich melde mich, weil Sie viele Reinigungsbetriebe erreichen. Denkbar wäre zum Beispiel ${ANGEBOT[z.typ]}.`,
     "",
     `Hätten Sie Interesse an einem kurzen Austausch (20 Minuten, online)? Einen Termin können Sie direkt hier wählen: ${DEMO_BOOKING_URL}`,
     "",

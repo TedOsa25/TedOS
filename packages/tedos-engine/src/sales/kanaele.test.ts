@@ -38,7 +38,7 @@ test("partner targets: only sourced entries survive; drafts by priority, never t
   assert.deepEqual(naechsteEntwuerfe(ziele, b, 2).map((z) => z.id), ["fachblatt"]);
   const e = partnerEntwurf(ziele[0]!);
   assert.match(e.text, /Guten Tag/);
-  assert.match(e.text, /Mitgliedervorteil/);
+  assert.match(e.text, /Vorteil für Ihre Mitgliedsbetriebe/);
   assert.equal(e.an, "info@die-gebaeudedienstleister.de");
 });
 
