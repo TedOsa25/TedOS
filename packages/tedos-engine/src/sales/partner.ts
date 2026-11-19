@@ -11,8 +11,8 @@ import type { ApprovalInput } from "../approval-queue.js";
 import type { RawMail } from "./inbound.js";
 import { registrableDomain } from "./model.js";
 
-export type PartnerTyp = "verband" | "grosshandel" | "hersteller" | "medien" | "messe" | "software";
-export const PARTNER_TYPEN: readonly PartnerTyp[] = ["verband", "grosshandel", "hersteller", "medien", "messe", "software"];
+export type PartnerTyp = "verband" | "grosshandel" | "hersteller" | "medien" | "messe" | "software" | "hausverwaltung" | "plattform" | "berater";
+export const PARTNER_TYPEN: readonly PartnerTyp[] = ["verband", "grosshandel", "hersteller", "medien", "messe", "software", "hausverwaltung", "plattform", "berater"];
 
 /** Researched target (data from public websites — never instructions). */
 export interface PartnerZiel {
@@ -104,8 +104,20 @@ const ANGEBOT: Record<PartnerTyp, { betreff: string; absatz: string }> = {
     absatz: "Ich würde gerne mit Ihnen eine Kooperation ausprobieren. Viele Ihrer Kunden aus der Gebäudereinigung organisieren Einsätze, Arbeitszeiten und Qualitätskontrollen noch auf Papier oder in Tabellen. HeyAudit ergänzt Ihre Maschinen und Systeme genau an dieser Stelle. Bei Interesse stellen Sie kurz den Kontakt her. Demo, Einrichtung und Betreuung übernehme ich persönlich.\n\nWäre es möglich, das mit zwei oder drei passenden Kunden zu testen? Falls ein gemeinsamer Kundentermin oder Workshop besser passt, würde ich mich über einen kurzen Austausch freuen.",
   },
   medien: {
-    betreff: "Angebot Praxisbeitrag: digitale Objektorganisation in der Gebäudereinigung",
-    absatz: "Ich würde Ihnen gerne einen Praxisbeitrag für Ihre Leserinnen und Leser anbieten. An einem Beispiel zeige ich, wie ein Reinigungsbetrieb Schichten, Arbeitszeiten und Qualitätskontrollen pro Objekt organisiert und gegenüber Auftraggebern nachweist. Den Beitrag schreibe ich selbst.\n\nWäre so ein Beitrag für eine Ihrer nächsten Ausgaben interessant? Falls ein anderes Format besser passt, würde ich mich über einen kurzen Austausch freuen.",
+    betreff: "Kooperationsidee für Ihre Leserinnen und Leser aus der Gebäudereinigung",
+    absatz: "Ich würde gerne mit Ihnen eine Kooperation ausprobieren. Ihre Leserinnen und Leser aus der Gebäudereinigung bekommen ein exklusives Angebot für HeyAudit, und ich liefere Ihnen dazu gern einen Fachbeitrag aus der Praxis, etwa wie ein Betrieb Schichten, Arbeitszeiten und Qualitätskontrollen pro Objekt organisiert und gegenüber Auftraggebern nachweist.\n\nWäre so eine Kooperation für Sie interessant? Falls ein Newsletter, eine Anzeige oder ein anderes Format besser passt, würde ich mich über einen kurzen Austausch freuen.",
+  },
+  hausverwaltung: {
+    betreff: "Nachweisbare Reinigungsqualität in Ihren Objekten",
+    absatz: "Für Hausverwaltungen ist das spannend, weil Ihre Reinigungsdienstleister mit HeyAudit pro Objekt nachweisen, wann wer vor Ort war und was erledigt wurde, inklusive Fotos und Checklisten. Sie bekommen damit eine verlässliche Grundlage gegenüber Eigentümern und Mietern, ohne selbst eine Software einführen zu müssen.\n\nIch würde gerne mit Ihnen ausprobieren, ob Sie HeyAudit Ihren Reinigungsdienstleistern empfehlen möchten. Wäre ein kurzer Austausch dazu möglich?",
+  },
+  plattform: {
+    betreff: "Partnerschaftsidee für die Reinigungsbetriebe auf Ihrer Plattform",
+    absatz: "Ich würde gerne mit Ihnen eine Partnerschaft ausprobieren. Die Reinigungsbetriebe auf Ihrer Plattform bekommen ein exklusives Angebot für HeyAudit und können ihren Auftraggebern damit ihre Leistung pro Objekt sauber nachweisen. Das stärkt auch die Qualität der Betriebe, die Sie vermitteln. Einrichtung und Betreuung übernehme ich persönlich.\n\nWäre es möglich, das mit einigen Betrieben zu testen? Falls eine Integration oder ein anderes Format besser passt, würde ich mich über einen kurzen Austausch freuen.",
+  },
+  berater: {
+    betreff: "Partnerschaftsidee für Ihre Mandanten aus der Gebäudereinigung",
+    absatz: "Ich würde gerne mit Ihnen eine Empfehlungspartnerschaft ausprobieren. Wenn ein Betrieb, den Sie betreuen, seine Abläufe digitalisieren möchte, können Sie ihm direkt eine passende Lösung empfehlen. Bei Interesse stellen Sie kurz den Kontakt her. Demo, Einrichtung und Betreuung übernehme ich persönlich.\n\nWäre es möglich, das mit zwei oder drei passenden Betrieben zu testen? Ich würde mich über einen kurzen Austausch freuen.",
   },
   software: {
     betreff: "Idee für eine gegenseitige Empfehlung",
