@@ -112,8 +112,11 @@ export function partnerEntwurf(z: PartnerZiel): { an: string; betreff: string; t
     `Hätten Sie Interesse an einem kurzen Austausch (20 Minuten, online)? Einen Termin können Sie direkt hier wählen: ${DEMO_BOOKING_URL}`,
     "",
     "Viele Grüße",
+    "",
+    "--",
     "Ted Osammor",
-    "HeyAudit · heyaudit.de",
+    "Gründer · HeyAudit",
+    "heyaudit.de · ted@heyaudit.de",
   ].join("\n");
   return { an, betreff: "Kooperation: digitale Einsatzplanung für Gebäudereiniger", text };
 }
