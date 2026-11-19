@@ -9,6 +9,10 @@
 //   npm run sales -- aufgaben | status | konten
 //   npm run sales -- pause [<job>] | weiter [<job>] | reset <job>
 //   npm run sales -- webhook [--port 4610]        local receiver (HMAC, writes spool)
+//   npm run sales -- ig-antwort --handle <h> --text "…" [--name "…"] [--at ISO]   IG-Runde: Antwort erfassen
+//   npm run sales -- ig-gesendet <goalId>         IG-Runde: freigegebene Antwort wurde gesendet
+//   npm run sales -- partner [<id> <status>]      Partnerliste / Status setzen (gespraech|partner|abgesagt|gesperrt|kontaktiert)
+//   npm run sales -- freigaben                    offene Entwürfe in der Sales-Freigabe
 //
 // State dir: SALES_STATE_DIR (default ~/dev/tedos-runtime/heyaudit-sales). HeyAudit only.
 
@@ -21,6 +25,8 @@ import { berlinDay, fromPilotEvent, normalizeEmail, validateEvent, type SalesEve
 import { setPaused, resetJob, tick } from "./scheduler.js";
 import { LockBusyError, SalesStore } from "./store.js";
 import { configFromEnv, SalesSystem } from "./system.js";
+import { igAntwortEreignis, normHandle, pruefeIgAntwort } from "./kanaele.js";
+import type { PartnerBestand, PartnerStatus } from "./partner.js";
 
 const STATE = process.env.SALES_STATE_DIR ?? join(homedir(), "dev", "tedos-runtime", "heyaudit-sales");
 
@@ -169,6 +175,49 @@ async function main(): Promise<void> {
           }
         });
       }).listen(port, "127.0.0.1", () => console.log(`Webhook-Empfänger auf 127.0.0.1:${port}/sales/event`));
+      return;
+    }
+    case "ig-antwort": {
+      const a = pruefeIgAntwort({ handle: arg(args, "--handle"), text: arg(args, "--text"), name: arg(args, "--name"), at: arg(args, "--at") ?? now.toISOString() });
+      if (!a) throw new Error("--handle und --text sind Pflicht (Handle ohne @, Zeit als ISO)");
+      const k = sys.igKontakte().find((x) => normHandle(x.handle) === a.handle);
+      const ev = igAntwortEreignis(a, k);
+      console.log(store.withLock(() => { const r = sys.ingest([ev], now); sys.jobInstagram(now); return `${ev.id} · ${r}`; }));
+      return;
+    }
+    case "ig-gesendet": {
+      const g = args[0];
+      const e = sys.approvals.all().find((x) => x.goalId === g);
+      if (!e || !g?.startsWith("sales:ig-antwort:")) throw new Error(`Kein IG-Antwortentwurf ${g ?? ""}`);
+      if (e.status !== "approved") throw new Error(`Entwurf ist nicht freigegeben (Status ${e.status}) — nicht senden`);
+      store.withLock(() => sys.approvals.markImplemented(g));
+      console.log(`gesendet vermerkt: ${g}`);
+      return;
+    }
+    case "partner": {
+      const { ziele, verworfen } = sys.partnerZiele();
+      const [id, status] = args;
+      if (id && status) {
+        const ok: PartnerStatus[] = ["kontaktiert", "gespraech", "partner", "abgesagt", "gesperrt"];
+        if (!ok.includes(status as PartnerStatus)) throw new Error(`Status ${status} unbekannt (${ok.join("|")})`);
+        if (!ziele.some((z) => z.id === id)) throw new Error(`Partner ${id} nicht in partner-ziele.json`);
+        store.withLock(() => {
+          const b = store.read<PartnerBestand>("partner.json", {});
+          b[id] = { ...(b[id] ?? { id }), id, status: status as PartnerStatus, seit: now.toISOString() };
+          store.write("partner.json", b);
+          sys.converge(now);
+        });
+        console.log(`${id}: ${status}`);
+        return;
+      }
+      const b = store.read<PartnerBestand>("partner.json", {});
+      for (const z of ziele) console.log(`${z.prioritaet} · ${z.id} · ${z.typ} · ${b[z.id]?.status ?? "recherchiert"} · ${z.name} · ${z.kontakt ?? "—"}`);
+      console.log(`${ziele.length} Ziele${verworfen ? `, ${verworfen} verworfen (ohne Beleg)` : ""}`);
+      return;
+    }
+    case "freigaben": {
+      for (const e of sys.approvals.pending()) console.log(`${e.goalId} · ${e.title}`);
+      console.log(`${sys.approvals.pending().length} offen · Freigeben: Datei approvals/ oder Freigabe-Seite`);
       return;
     }
     default:

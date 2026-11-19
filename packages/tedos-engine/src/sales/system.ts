@@ -1,7 +1,11 @@
 // Wiring: the six agents as scheduler jobs over one store.
 
+import { execFile } from "node:child_process";
 import { copyFileSync, existsSync, readdirSync, readFileSync, renameSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { ApprovalQueue } from "../approval-queue.js";
 import { JsonFileStorage } from "../storage.js";
 import { buildBody, promptVersion, refineWithModel } from "./drafts.js";
@@ -9,13 +13,18 @@ import { fetchNewMail, imapConfigFromEnv, type Cursor } from "./imap-source.js";
 import type { RawMail } from "./inbound.js";
 import { parseMail } from "./inbound.js";
 import type { SalesEvent } from "./model.js";
-import { berlinDay, berlinWeek, normalizeEmail, validateEvent } from "./model.js";
+import { berlinDay, berlinParts, berlinWeek, normalizeEmail, validateEvent } from "./model.js";
 import { acquisitionPlan, dailyBrief, funnel, learningProposals, readMetaSpend, weeklyReport } from "./reports.js";
 import { loadBlocklist, pageFetch, placesSearch, runResearch, type ResearchState } from "./research.js";
 import type { AccountState } from "./rules.js";
 import { accountState, reconcile, resolveAccounts, stillValid } from "./rules.js";
 import type { JobDef } from "./scheduler.js";
 import type { SalesStore, SalesTask } from "./store.js";
+import { igAntwortFreigabe, igFunnel, kanaeleAbschnitt, type IgKontakt, type MetaAdsStand, type MetaZahlen } from "./kanaele.js";
+import { ladeZiele, naechsteEntwuerfe, partnerAbschnitt, partnerAntworten, partnerFreigabe, type PartnerBestand, type PartnerZiel } from "./partner.js";
+
+const ENGINE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const run = promisify(execFile);
 
 const EXTERNAL: SalesTask["type"][] = ["reply_draft", "rebook", "followup_draft"];
 
@@ -23,6 +32,10 @@ export interface Config {
   capacity: number;
   researchLimit: number;
   blocklists: string[];
+  /** Instagram/Growth runtime (follow ledger, growth briefings, Meta inputs). Outside iCloud. */
+  igRuntime: string;
+  /** Partner first-contact DRAFTS per weekday (nothing is sent). */
+  partnerPerDay: number;
 }
 
 export function configFromEnv(): Config {
@@ -30,6 +43,8 @@ export function configFromEnv(): Config {
     capacity: Number(process.env.SALES_KAPAZITAET ?? 6),
     researchLimit: Number(process.env.SALES_RESEARCH_LIMIT ?? 10),
     blocklists: (process.env.SALES_SPERRLISTEN ?? "").split(":").filter(Boolean),
+    igRuntime: process.env.SALES_IG_RUNTIME ?? join(homedir(), "dev", "heyaudit-ig-runtime"),
+    partnerPerDay: Number(process.env.SALES_PARTNER_PRO_TAG ?? 3),
   };
 }
 
@@ -105,7 +120,41 @@ export class SalesSystem {
 
   writeCockpit(now: Date, states: AccountState[], tasks: SalesTask[]): void {
     const md = dailyBrief(now, tasks, states, Object.values(this.store.jobs()), Object.values(this.store.research()));
-    writeFileSync(join(this.store.dir, "AUFGABEN.md"), md + "\n", { mode: 0o600 });
+    const extra: string[] = [];
+    try { const { ziele } = this.partnerZiele(); if (ziele.length) extra.push(partnerAbschnitt(ziele, this.store.read<PartnerBestand>("partner.json", {}))); } catch (e) { extra.push(`## Partner\n\nnicht lesbar: ${(e as Error).message}`); }
+    try { extra.push(this.kanaeleText(states)); } catch (e) { extra.push(`## Kanäle\n\nnicht lesbar: ${(e as Error).message}`); }
+    writeFileSync(join(this.store.dir, "AUFGABEN.md"), [md, ...extra].join("\n\n") + "\n", { mode: 0o600 });
+  }
+
+  // ── partner / channels helpers ───────────────────────────────────────
+  partnerZiele(): { ziele: PartnerZiel[]; verworfen: number } {
+    return ladeZiele(this.store.read<unknown>("partner-ziele.json", []));
+  }
+
+  igKontakte(): IgKontakt[] {
+    const p = join(this.cfg.igRuntime, "growth", "ig-akquise.json");
+    if (!existsSync(p)) return [];
+    const b = JSON.parse(readFileSync(p, "utf8")) as { kontakte?: Record<string, IgKontakt> };
+    return Object.values(b.kontakte ?? {});
+  }
+
+  private readGrowth<T>(file: string): T | undefined {
+    const p = join(this.cfg.igRuntime, "growth", "eingang", file);
+    try { return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as T) : undefined; } catch { return undefined; }
+  }
+
+  kanaeleText(states: AccountState[]): string {
+    const drafted = this.store.read<Record<string, string>>("ig-entwuerfe.json", {});
+    const pendingIds = new Set(this.approvals.pending().map((a) => a.goalId));
+    return kanaeleAbschnitt({
+      igKontakte: this.igKontakte(),
+      igOffeneEntwuerfe: Object.values(drafted).filter((g) => pendingIds.has(g)).length,
+      igFunnel: igFunnel(this.igKontakte(), states),
+      ...(this.readGrowth<MetaZahlen>("meta.json") ? { meta: this.readGrowth<MetaZahlen>("meta.json") } : {}),
+      ...(this.readGrowth<MetaAdsStand>("meta-ads.json") ? { metaAds: this.readGrowth<MetaAdsStand>("meta-ads.json") } : {}),
+      metaLeadsHinweis: "kein Meta-Leadformular angebunden (braucht Seiten-Token mit leads_retrieval); Leads aus Export per Spool möglich",
+      ...(this.store.jobs().growth?.lastResult ? { growthLauf: this.store.jobs().growth?.lastResult } : {}),
+    });
   }
 
   // ── jobs ──────────────────────────────────────────────────────────────
@@ -117,6 +166,9 @@ export class SalesSystem {
       { name: "tagesbericht", schedule: { at: { hour: 7, minute: 30 }, days: [1, 2, 3, 4, 5] }, run: async ({ now }) => this.jobDaily(now) },
       { name: "akquise", schedule: { at: { hour: 7, minute: 40 }, days: [1] }, run: ({ now }) => this.jobAcquisition(now) },
       { name: "wochenbericht", schedule: { at: { hour: 7, minute: 45 }, days: [1] }, run: ({ now }) => this.jobWeekly(now) },
+      { name: "instagram", schedule: { every: 15 }, run: async ({ now }) => this.jobInstagram(now) },
+      { name: "partner", schedule: { at: { hour: 8, minute: 15 }, days: [1, 2, 3, 4, 5] }, run: async ({ now }) => this.jobPartner(now) },
+      { name: "growth", schedule: { at: { hour: 8, minute: 0 }, days: [1, 2, 3, 4, 5, 6, 7] }, run: ({ now }) => this.jobGrowth(now) },
       { name: "monitor", schedule: { every: 15 }, run: async ({ now }) => this.jobMonitor(now) },
     ];
   }
@@ -147,6 +199,13 @@ export class SalesSystem {
       for (const m of mails) { const ev = parseMail(m, new Set()); if (ev.length && ev[0]?.kind !== "reply") { events.push(...ev); recognized++; ev.forEach((e) => e.email && known.add(e.email)); } }
       for (const m of mails) { const ev = parseMail(m, known).filter((e) => ["reply", "opt_out", "bounce"].includes(e.kind)); if (ev.length) { events.push(...ev); recognized++; } }
       imap = `IMAP ${mails.length} Mails gelesen, ${recognized} erkannt`;
+      // Partner replies (verband/großhandel/…): never leads — tracked in partner.json.
+      const { ziele } = this.partnerZiele();
+      if (ziele.length && mails.length) {
+        const bestand = this.store.read<PartnerBestand>("partner.json", {});
+        const hit = partnerAntworten(mails, ziele, bestand, now.toISOString());
+        if (hit.length) { this.store.write("partner.json", bestand); imap += ` · Partner-Antwort: ${hit.join(", ")}`; }
+      }
     }
     const out = this.ingest(events, now);
     // Persist cursor + archive spool only AFTER events are stored (crash-safe: replay is idempotent).
@@ -220,6 +279,73 @@ export class SalesSystem {
       businessImpact: 8, revenueImpact: 8, customerValue: 5, risk: "HIGH", priorityScore: 8, files: [p], estimatedEffort: "Freigabe + Einrichtung 1 h",
     });
     return `Akquise-Analyse ${p} · Testvorschlag ${plan.proposal.goalId} in Freigabe-Queue${meta?.error ? ` · Meta: ${meta.error}` : meta ? " · Meta gelesen" : " · Meta: kein Zugang"}`;
+  }
+
+  /** Instagram replies (recorded by the IG-Runde session via `sales -- ig-antwort`) → DM answer drafts. */
+  jobInstagram(now: Date): string {
+    const drafted = this.store.read<Record<string, string>>("ig-entwuerfe.json", {});
+    let neu = 0;
+    for (const e of Object.values(this.store.events())) {
+      if (e.origin !== "instagram" || e.kind !== "reply" || drafted[e.id]) continue;
+      const a = igAntwortFreigabe(e);
+      this.approvals.enqueue(a);
+      drafted[e.id] = a.goalId;
+      neu++;
+    }
+    if (neu) this.store.write("ig-entwuerfe.json", drafted);
+    const k = this.igKontakte();
+    this.converge(now);
+    return `Instagram: ${k.length} Firmen im Bestand, ${Object.keys(drafted).length} Antworten erfasst, +${neu} Antwortentwürfe in Freigabe`;
+  }
+
+  /** Partner first-contact drafts → approval queue. Sends nothing. */
+  jobPartner(now: Date): string {
+    const { ziele, verworfen } = this.partnerZiele();
+    if (!ziele.length) return "Partner: keine recherchierten Ziele (partner-ziele.json leer)";
+    const bestand = this.store.read<PartnerBestand>("partner.json", {});
+    const heute = naechsteEntwuerfe(ziele, bestand, this.cfg.partnerPerDay);
+    for (const z of heute) {
+      const a = partnerFreigabe(z);
+      this.approvals.enqueue(a);
+      bestand[z.id] = { ...(bestand[z.id] ?? {}), id: z.id, status: "entwurf", seit: now.toISOString(), entwurfGoalId: a.goalId };
+    }
+    this.store.write("partner.json", bestand);
+    this.converge(now);
+    return `Partner: ${heute.length} Entwürfe in Freigabe (${heute.map((z) => z.name).join(", ") || "—"}) · ${ziele.length} Ziele${verworfen ? `, ${verworfen} ohne Beleg verworfen` : ""} · nichts gesendet`;
+  }
+
+  /**
+   * Growth-OS daily run (read-only): Meta numbers + Meta-Ads analysis, Thursday
+   * the Instagram content plan (draft + approval), then the growth briefing.
+   * Deliberately NOT growth:ausfuehren (publishing / campaign changes).
+   */
+  async jobGrowth(now: Date): Promise<string> {
+    const rt = this.cfg.igRuntime;
+    const steps: Array<[string, string[]]> = [
+      ["meta", ["src/growth-os/meta-run.ts", "--runtime", rt]],
+      ["meta-ads", ["src/growth-os/meta-ads-run.ts", "--runtime", rt]],
+    ];
+    if (berlinParts(now).weekday === 4) steps.push(["content", ["src/growth-os/content-run.ts", "--runtime", rt, "--marketing", join(homedir(), "Desktop", "TedOS", "Marketing", "heyaudit-instagram")]]);
+    const ein = join(rt, "growth", "eingang");
+    // Built lazily: the briefing must see the files the Meta steps just wrote.
+    const briefing = () => {
+      const a = ["src/growth-os/briefing-run.ts", "--runtime", rt];
+      for (const f of ["aktivierung", "meta", "meta-ads"]) if (existsSync(join(ein, `${f}.json`))) a.push(`--${f}`, join(ein, `${f}.json`));
+      return a;
+    };
+    steps.push(["briefing", []]);
+    const out: string[] = [];
+    for (const [name, fixed] of steps) {
+      const args = name === "briefing" ? briefing() : fixed;
+      try {
+        await run(process.execPath, ["--import", "tsx", ...args], { cwd: ENGINE_DIR, timeout: 240_000, env: process.env, maxBuffer: 4_000_000 });
+        out.push(`${name} ok`);
+      } catch (e) {
+        out.push(`${name} FEHLER ${((e as { stderr?: string }).stderr ?? (e as Error).message).split("\n").filter(Boolean).at(-1)?.slice(0, 120) ?? ""}`);
+      }
+    }
+    if (out.some((x) => x.startsWith("briefing FEHLER"))) throw new Error(`Growth: ${out.join(" · ")}`);
+    return `Growth (${berlinDay(now)}): ${out.join(" · ")} · nichts veröffentlicht`;
   }
 
   jobMonitor(now: Date): string {
