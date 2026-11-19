@@ -119,3 +119,66 @@ test("growth job never runs the publishing executor", () => {
   const names = fresh().jobs().map((j) => j.name);
   for (const n of ["instagram", "partner", "growth"]) assert.ok(names.includes(n));
 });
+
+// ── Partner-Versand ─────────────────────────────────────────────────────
+const MO_10 = new Date("2026-11-23T09:00:00Z"); // Monday 10:00 Berlin
+function versandSys(sent: Array<{ an: string; betreff: string; text: string }>, fail = false) {
+  const dir = mkdtempSync(join(tmpdir(), "sales-versand-"));
+  const s = new SalesSystem(new SalesStore(dir), { capacity: 6, researchLimit: 10, blocklists: [], igRuntime: "/nonexistent-ig", partnerPerDay: 5 },
+    async (m) => { if (fail) throw new Error("SMTP kaputt"); sent.push(m); return `<id${sent.length}@x>`; });
+  s.store.write("partner-ziele.json", ZIELE);
+  s.jobPartner(MO_10);
+  return s;
+}
+
+test("partner mail: nothing without channel approval or single approval", async () => {
+  const sent: Array<{ an: string; betreff: string; text: string }> = [];
+  const s = versandSys(sent);
+  assert.match(await s.jobPartnerVersand(MO_10), /keine Kanalfreigabe/);
+  s.store.write("freigaben.json", [{ kanal: "partner_mail", zweck: "erstkontakt", proTag: 3, belegt: "Test" }]);
+  assert.match(await s.jobPartnerVersand(MO_10), /nichts freigegeben/);
+  assert.equal(sent.length, 0);
+});
+
+test("partner mail: approved email partner sent once with exact text; form partner never; volume cap", async () => {
+  const sent: Array<{ an: string; betreff: string; text: string }> = [];
+  const s = versandSys(sent);
+  s.store.write("freigaben.json", [{ kanal: "partner_mail", zweck: "erstkontakt", proTag: 1, belegt: "Test" }]);
+  s.approvals.approve("sales:partner:biv");
+  s.approvals.approve("sales:partner:igefa");
+  s.approvals.approve("sales:partner:fachblatt");
+  const r = await s.jobPartnerVersand(MO_10);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.an, "info@die-gebaeudedienstleister.de");
+  assert.match(sent[0]!.text, /^Guten Tag,/);
+  assert.ok(!/---|Warum:|Beleg:/.test(sent[0]!.text), "internal notes are never sent");
+  assert.match(r, /Tagesvolumen 1 erreicht/);
+  await s.jobPartnerVersand(new Date(MO_10.getTime() + 3_600_000));
+  assert.equal(sent.length, 1, "cap holds the same day; biv never twice");
+  const r2 = await s.jobPartnerVersand(new Date(MO_10.getTime() + 86_400_000));
+  assert.match(r2, /igefa: nur Kontaktformular/);
+  assert.deepEqual(sent.map((m) => m.an), ["info@die-gebaeudedienstleister.de", "redaktion@fachblatt.example"]);
+  const b = s.store.read<PartnerBestand>("partner.json", {});
+  assert.equal(b.biv?.status, "kontaktiert");
+  assert.equal(b.biv?.gesendet?.messageId, "<id1@x>");
+  assert.equal(b.igefa?.status, "entwurf");
+});
+
+test("partner mail: weekend/night, blocklisted domain, SMTP crash never re-sends", async () => {
+  const sent: Array<{ an: string; betreff: string; text: string }> = [];
+  const s = versandSys(sent, true);
+  s.store.write("freigaben.json", [{ kanal: "partner_mail", zweck: "erstkontakt", proTag: 3, belegt: "Test" }]);
+  s.approvals.approve("sales:partner:biv");
+  s.approvals.approve("sales:partner:fachblatt");
+  assert.match(await s.jobPartnerVersand(new Date("2026-11-22T10:00:00Z")), /außerhalb/);
+  mkdirSync(join(s.store.dir, "sperrlisten"), { recursive: true });
+  writeFileSync(join(s.store.dir, "sperrlisten", "x.json"), JSON.stringify(["redaktion@fachblatt.example"]));
+  await assert.rejects(s.jobPartnerVersand(MO_10), /SMTP kaputt/);
+  const b = s.store.read<PartnerBestand>("partner.json", {});
+  assert.equal(b.biv?.status, "sendet");
+  assert.equal(b.fachblatt?.status, "entwurf");
+  const r = await s.jobPartnerVersand(new Date(MO_10.getTime() + 600_000));
+  assert.match(r, /fachblatt: Adresse\/Domain auf Sperrliste/);
+  assert.ok(!/biv/.test(r), "a crashed send is not retried");
+  assert.equal(sent.length, 0);
+});

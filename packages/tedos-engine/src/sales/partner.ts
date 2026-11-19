@@ -31,13 +31,14 @@ export interface PartnerZiel {
   prioritaet?: number;
 }
 
-export type PartnerStatus = "recherchiert" | "entwurf" | "kontaktiert" | "antwort" | "gespraech" | "partner" | "abgesagt" | "gesperrt";
+export type PartnerStatus = "recherchiert" | "entwurf" | "sendet" | "kontaktiert" | "antwort" | "gespraech" | "partner" | "abgesagt" | "gesperrt";
 
 export interface PartnerStand {
   id: string;
   status: PartnerStatus;
   seit: string;
   entwurfGoalId?: string;
+  gesendet?: { at: string; an: string; messageId: string };
   antworten?: Array<{ at: string; von: string; betreff: string; messageId: string }>;
   notiz?: string;
 }
@@ -188,7 +189,53 @@ export function partnerAbschnitt(ziele: PartnerZiel[], bestand: PartnerBestand):
   }
   const counts = (["recherchiert", "entwurf", "kontaktiert", "antwort", "gespraech", "partner", "abgesagt"] as PartnerStatus[]).map((s) => `${s} ${by(s).length}`).join(" · ");
   lines.push(`Stand: ${ziele.length} Ziele · ${counts}`);
+  const haengt = by("sendet");
+  if (haengt.length) lines.push(`⚠ Versand unklar (abgebrochen?) — bitte im Gesendet-Ordner prüfen, wird NICHT automatisch wiederholt: ${haengt.map((z) => z.name).join(", ")}`);
   const entw = by("entwurf");
-  if (entw.length) lines.push(`Entwürfe in der Freigabe: ${entw.map((z) => z.name).join(", ")} (Versand bleibt aus, bis Freigabe partner_mail/erstkontakt dokumentiert ist).`);
+  if (entw.length) lines.push(`Entwürfe in der Freigabe: ${entw.map((z) => z.name).join(", ")}. Freigegebene E-Mails gehen werktags raus (max. laut freigaben.json), Formular-Kontakte füllt Ted von Hand aus.`);
   return lines.join("\n");
+}
+
+// ── Versand (nur nach Einzelfreigabe + dokumentierter Kanalfreigabe) ──────
+
+export const PARTNER_KANAL = "partner_mail";
+export const PARTNER_ZWECK = "erstkontakt";
+
+/** Exactly the text Ted approved: parse An/Betreff/Text out of the approval description. */
+export function freigegebeneMail(description: string): { an: string; betreff: string; text: string } | undefined {
+  const [kopf] = description.split(/\n---\n/);
+  if (!kopf) return undefined;
+  const m = kopf.match(/^An: (.+)\nBetreff: (.+)\n\n([\s\S]+)$/);
+  if (!m) return undefined;
+  const [, an, betreff, text] = m;
+  if (!an || !betreff || !text) return undefined;
+  return { an: an.trim(), betreff: betreff.trim(), text: text.trimEnd() };
+}
+
+export interface VersandPruefung { ok: boolean; warum: string }
+
+/** All gates for one partner mail. Pure: caller supplies state. */
+export function darfPartnerSenden(o: {
+  ziel: PartnerZiel;
+  stand: PartnerStand | undefined;
+  freigabeStatus: string | undefined;
+  mail: { an: string } | undefined;
+  kanalFreigabe: { proTag: number; bis?: string } | undefined;
+  heute: string;
+  wochentag: number;
+  heuteGesendet: number;
+  gesperrt: { domains: Set<string>; emails: Set<string> };
+}): VersandPruefung {
+  if (!o.kanalFreigabe || (o.kanalFreigabe.bis && o.kanalFreigabe.bis < o.heute)) return { ok: false, warum: "keine gültige Kanalfreigabe partner_mail/erstkontakt" };
+  if (o.wochentag > 5) return { ok: false, warum: "Wochenende" };
+  if (o.heuteGesendet >= o.kanalFreigabe.proTag) return { ok: false, warum: `Tagesvolumen ${o.kanalFreigabe.proTag} erreicht` };
+  if (o.freigabeStatus !== "approved") return { ok: false, warum: "Entwurf nicht freigegeben" };
+  if (o.stand?.status !== "entwurf") return { ok: false, warum: `Status ${o.stand?.status ?? "—"} (nur Entwürfe werden gesendet, jede Mail höchstens einmal)` };
+  if (o.ziel.kontaktArt !== "email") return { ok: false, warum: "nur Kontaktformular — von Hand ausfüllen" };
+  const an = o.mail?.an.toLowerCase();
+  if (!an || !/^[^\s@<>]+@[^\s@<>]+\.[a-z]{2,}$/.test(an)) return { ok: false, warum: "keine gültige Empfängeradresse im freigegebenen Entwurf" };
+  if (an !== o.ziel.kontakt?.toLowerCase()) return { ok: false, warum: "Empfänger weicht von der recherchierten Adresse ab" };
+  const dom = registrableDomain(an);
+  if (o.gesperrt.emails.has(an) || (dom && o.gesperrt.domains.has(dom))) return { ok: false, warum: "Adresse/Domain auf Sperrliste (schon kontaktiert oder abgemeldet)" };
+  return { ok: true, warum: "Einzelfreigabe + Kanalfreigabe" };
 }

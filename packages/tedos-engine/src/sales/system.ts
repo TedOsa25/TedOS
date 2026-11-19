@@ -21,7 +21,7 @@ import { accountState, reconcile, resolveAccounts, stillValid } from "./rules.js
 import type { JobDef } from "./scheduler.js";
 import type { SalesStore, SalesTask } from "./store.js";
 import { igAntwortFreigabe, igFunnel, kanaeleAbschnitt, type IgKontakt, type MetaAdsStand, type MetaZahlen } from "./kanaele.js";
-import { ladeZiele, naechsteEntwuerfe, partnerAbschnitt, partnerAntworten, partnerFreigabe, type PartnerBestand, type PartnerZiel } from "./partner.js";
+import { darfPartnerSenden, freigegebeneMail, ladeZiele, naechsteEntwuerfe, PARTNER_KANAL, PARTNER_ZWECK, partnerAbschnitt, partnerAntworten, partnerFreigabe, type PartnerBestand, type PartnerZiel } from "./partner.js";
 
 const ENGINE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const run = promisify(execFile);
@@ -51,9 +51,31 @@ export function configFromEnv(): Config {
 /** Documented approvals for external actions (channel × purpose × volume). Empty = nothing external. */
 export interface Freigabe { kanal: string; zweck: string; proTag: number; bis?: string; belegt: string }
 
+/** Mail transport (injectable for tests). Returns the Message-ID. */
+export type MailSender = (m: { an: string; betreff: string; text: string }) => Promise<string>;
+
+export function smtpSenderFromEnv(): MailSender | undefined {
+  const user = process.env.SALES_SMTP_USER ?? process.env.SALES_IMAP_USER;
+  const pass = process.env.SALES_SMTP_PASS ?? process.env.SALES_IMAP_PASS;
+  if (!user || !pass) return undefined;
+  return async (m) => {
+    const mod = "nodemailer";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nodemailer = (await import(mod)) as any;
+    const t = (nodemailer.default ?? nodemailer).createTransport({
+      host: process.env.SALES_SMTP_HOST ?? "smtp.gmail.com", port: 465, secure: true, auth: { user, pass },
+      connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 30000,
+    });
+    try {
+      const info = await t.sendMail({ from: `Ted Osammor <${user}>`, to: m.an, subject: m.betreff, text: m.text });
+      return String(info.messageId ?? "");
+    } finally { t.close(); }
+  };
+}
+
 export class SalesSystem {
   readonly approvals: ApprovalQueue;
-  constructor(readonly store: SalesStore, readonly cfg: Config) {
+  constructor(readonly store: SalesStore, readonly cfg: Config, readonly sendMail: MailSender | undefined = undefined) {
     this.approvals = new ApprovalQueue(new JsonFileStorage(join(store.dir, "approvals")));
   }
 
@@ -168,6 +190,7 @@ export class SalesSystem {
       { name: "wochenbericht", schedule: { at: { hour: 7, minute: 45 }, days: [1] }, run: ({ now }) => this.jobWeekly(now) },
       { name: "instagram", schedule: { every: 15 }, run: async ({ now }) => this.jobInstagram(now) },
       { name: "partner", schedule: { at: { hour: 8, minute: 15 }, days: [1, 2, 3, 4, 5] }, run: async ({ now }) => this.jobPartner(now) },
+      { name: "partner-versand", schedule: { every: 15 }, run: ({ now }) => this.jobPartnerVersand(now) },
       { name: "growth", schedule: { at: { hour: 8, minute: 0 }, days: [1, 2, 3, 4, 5, 6, 7] }, run: ({ now }) => this.jobGrowth(now) },
       { name: "monitor", schedule: { every: 15 }, run: async ({ now }) => this.jobMonitor(now) },
     ];
@@ -312,6 +335,46 @@ export class SalesSystem {
     this.store.write("partner.json", bestand);
     this.converge(now);
     return `Partner: ${heute.length} Entwürfe in Freigabe (${heute.map((z) => z.name).join(", ") || "—"}) · ${ziele.length} Ziele${verworfen ? `, ${verworfen} ohne Beleg verworfen` : ""} · nichts gesendet`;
+  }
+
+  /**
+   * Sends APPROVED partner first-contact mails: only with a documented channel
+   * approval (freigaben.json partner_mail/erstkontakt, volume per day), only
+   * the exact approved text, only once per partner, Mon–Fri 09–17 Berlin.
+   * Status goes to "sendet" BEFORE the SMTP call, so a crash never re-sends.
+   */
+  async jobPartnerVersand(now: Date): Promise<string> {
+    const p = berlinParts(now);
+    if (p.weekday > 5 || p.hour < 9 || p.hour >= 17) return "Partner-Versand: außerhalb Mo–Fr 09–17 Uhr";
+    const kanal = this.store.read<Freigabe[]>("freigaben.json", []).find((f) => f.kanal === PARTNER_KANAL && f.zweck === PARTNER_ZWECK);
+    if (!kanal) return "Partner-Versand: keine Kanalfreigabe";
+    const { ziele } = this.partnerZiele();
+    const bestand = this.store.read<PartnerBestand>("partner.json", {});
+    const approvals = new Map(this.approvals.all().map((a) => [a.goalId, a]));
+    const kandidaten = ziele.filter((z) => bestand[z.id]?.status === "entwurf" && approvals.get(`sales:partner:${z.id}`)?.status === "approved");
+    if (!kandidaten.length) return "Partner-Versand: nichts freigegeben";
+    if (!this.sendMail) throw new Error("Partner-Versand: kein SMTP-Zugang (SALES_IMAP_USER/PASS)");
+    const snapDir = join(this.store.dir, "sperrlisten");
+    const gesperrt = loadBlocklist(existsSync(snapDir) ? readdirSync(snapDir).map((f) => join(snapDir, f)) : []);
+    const heute = berlinDay(now);
+    const out: string[] = [];
+    for (const z of kandidaten) {
+      const used = this.store.readLines<{ day: string; kanal: string }>("ausgefuehrt.jsonl").filter((x) => x.day === heute && x.kanal === PARTNER_KANAL).length;
+      const goalId = `sales:partner:${z.id}`;
+      const mail = freigegebeneMail(approvals.get(goalId)?.description ?? "");
+      const chk = darfPartnerSenden({ ziel: z, stand: bestand[z.id], freigabeStatus: approvals.get(goalId)?.status, mail, kanalFreigabe: kanal, heute, wochentag: p.weekday, heuteGesendet: used, gesperrt });
+      if (!chk.ok || !mail) { out.push(`${z.id}: ${chk.warum}`); if (/Tagesvolumen/.test(chk.warum)) break; continue; }
+      bestand[z.id] = { ...(bestand[z.id] as NonNullable<PartnerBestand[string]>), status: "sendet", seit: now.toISOString() };
+      this.store.write("partner.json", bestand);
+      this.store.append("ausgefuehrt.jsonl", { day: heute, kanal: PARTNER_KANAL, zweck: PARTNER_ZWECK, ziel: z.id, an: mail.an, at: now.toISOString(), freigabe: kanal.belegt });
+      const messageId = await this.sendMail(mail);
+      bestand[z.id] = { ...(bestand[z.id] as NonNullable<PartnerBestand[string]>), status: "kontaktiert", seit: new Date().toISOString(), gesendet: { at: new Date().toISOString(), an: mail.an, messageId } };
+      this.store.write("partner.json", bestand);
+      this.approvals.markImplemented(goalId);
+      out.push(`${z.id}: gesendet an ${mail.an}`);
+    }
+    this.converge(now);
+    return `Partner-Versand: ${out.join(" · ")}`;
   }
 
   /**

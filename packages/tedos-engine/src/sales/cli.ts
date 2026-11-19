@@ -13,6 +13,7 @@
 //   npm run sales -- ig-gesendet <goalId>         IG-Runde: freigegebene Antwort wurde gesendet
 //   npm run sales -- partner [<id> <status>]      Partnerliste / Status setzen (gespraech|partner|abgesagt|gesperrt|kontaktiert)
 //   npm run sales -- freigaben                    offene Entwürfe in der Sales-Freigabe
+//   npm run sales -- entwurf <goalId> | freigeben <goalId> | ablehnen <goalId>   (nur auf Teds Wort)
 //
 // State dir: SALES_STATE_DIR (default ~/dev/tedos-runtime/heyaudit-sales). HeyAudit only.
 
@@ -24,7 +25,7 @@ import { join } from "node:path";
 import { berlinDay, fromPilotEvent, normalizeEmail, validateEvent, type SalesEvent } from "./model.js";
 import { setPaused, resetJob, tick } from "./scheduler.js";
 import { LockBusyError, SalesStore } from "./store.js";
-import { configFromEnv, SalesSystem } from "./system.js";
+import { configFromEnv, SalesSystem, smtpSenderFromEnv } from "./system.js";
 import { igAntwortEreignis, normHandle, pruefeIgAntwort } from "./kanaele.js";
 import type { PartnerBestand, PartnerStatus } from "./partner.js";
 
@@ -45,7 +46,7 @@ async function main(): Promise<void> {
   const [cmd = "status", ...args] = process.argv.slice(2);
   if (process.env.REVENUE_BRAND && process.env.REVENUE_BRAND !== "heyaudit") throw new Error("Sales-System ist nur für HeyAudit (REVENUE_BRAND≠heyaudit)");
   const store = new SalesStore(STATE);
-  const sys = new SalesSystem(store, configFromEnv());
+  const sys = new SalesSystem(store, configFromEnv(), smtpSenderFromEnv());
   const now = new Date();
 
   switch (cmd) {
@@ -213,6 +214,36 @@ async function main(): Promise<void> {
       const b = store.read<PartnerBestand>("partner.json", {});
       for (const z of ziele) console.log(`${z.prioritaet} · ${z.id} · ${z.typ} · ${b[z.id]?.status ?? "recherchiert"} · ${z.name} · ${z.kontakt ?? "—"}`);
       console.log(`${ziele.length} Ziele${verworfen ? `, ${verworfen} verworfen (ohne Beleg)` : ""}`);
+      return;
+    }
+    case "smtp-pruefen": {
+      // Login check only — sends nothing.
+      const user = process.env.SALES_SMTP_USER ?? process.env.SALES_IMAP_USER;
+      const pass = process.env.SALES_SMTP_PASS ?? process.env.SALES_IMAP_PASS;
+      if (!user || !pass) throw new Error("kein SMTP-Zugang");
+      const mod = "nodemailer";
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nm = (await import(mod)) as any;
+      const t = (nm.default ?? nm).createTransport({ host: process.env.SALES_SMTP_HOST ?? "smtp.gmail.com", port: 465, secure: true, auth: { user, pass }, connectionTimeout: 15000 });
+      await t.verify();
+      t.close();
+      console.log(`SMTP-Login ok (${user}), nichts gesendet`);
+      return;
+    }
+    case "freigeben":
+    case "ablehnen": {
+      const g = args[0];
+      const e = sys.approvals.all().find((x) => x.goalId === g);
+      if (!e) throw new Error(`Kein Eintrag ${g ?? ""}`);
+      if (e.status !== "pending") throw new Error(`${g} ist schon ${e.status}`);
+      store.withLock(() => (cmd === "freigeben" ? sys.approvals.approve(g as string) : sys.approvals.reject(g as string)));
+      console.log(`${g}: ${cmd === "freigeben" ? "freigegeben" : "abgelehnt"}`);
+      return;
+    }
+    case "entwurf": {
+      const e = sys.approvals.all().find((x) => x.goalId === args[0]);
+      if (!e) throw new Error(`Kein Eintrag ${args[0] ?? ""}`);
+      console.log(`${e.title} [${e.status}]\n\n${e.description}`);
       return;
     }
     case "freigaben": {
