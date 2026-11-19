@@ -79,7 +79,16 @@
     "test:inbox-classify": "tsx src/revenue/inbox-classify.test.ts",
     "sales": "node --import tsx src/sales/cli.ts",
     "sales:shadow": "node --import tsx src/sales/cli.ts ingest",
-    "test:sales": "tsx --test src/sales/sales.test.ts"
+    "test:sales": "tsx --test src/sales/sales.test.ts src/sales/kanaele.test.ts",
+    "growth:briefing": "tsx src/growth-os/briefing-run.ts",
+    "growth:meta": "tsx src/growth-os/meta-run.ts",
+    "growth:meta-ads": "tsx src/growth-os/meta-ads-run.ts",
+    "growth:content": "tsx src/growth-os/content-run.ts",
+    "growth:freigabe": "tsx src/growth-os/freigabe-server.ts",
+    "growth:ausfuehren": "tsx src/growth-os/ausfuehren-run.ts",
+    "growth:google": "tsx src/growth-os/google-ads-run.ts",
+    "growth:ig-akquise": "tsx src/growth-os/ig-akquise-run.ts",
+    "test:growth-briefing": "tsx --test src/growth-os/briefing.test.ts src/growth-os/meta-insights.test.ts src/growth-os/content-plan.test.ts src/growth-os/freigabe-server.test.ts src/growth-os/meta-ads.test.ts src/growth-os/ausfuehren.test.ts src/growth-os/tagesplan.test.ts src/growth-os/kanaele.test.ts src/growth-os/ig-akquise.test.ts"
   },
   "keywords": [],
   "author": "",

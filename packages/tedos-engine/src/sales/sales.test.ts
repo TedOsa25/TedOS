@@ -18,7 +18,7 @@ const h = (n: number) => new Date(T0.getTime() + n * 3_600_000);
 
 function fresh(): SalesSystem {
   const dir = mkdtempSync(join(tmpdir(), "sales-test-"));
-  return new SalesSystem(new SalesStore(dir), { capacity: 6, researchLimit: 10, blocklists: [] });
+  return new SalesSystem(new SalesStore(dir), { capacity: 6, researchLimit: 10, blocklists: [], igRuntime: "/nonexistent-ig", partnerPerDay: 3 });
 }
 const open = (s: SalesSystem) => Object.values(s.store.tasks()).filter((t) => t.status === "open");
 const ev = (e: Partial<SalesEvent> & Pick<SalesEvent, "id" | "kind">): SalesEvent => ({ at: T0.toISOString(), origin: "test", ...e });
@@ -138,7 +138,7 @@ test("duplicate, late and replayed events, parallel runs and restarts → no dou
   s.ingest([reg, book as SalesEvent, can as SalesEvent], h(4));
   assert.equal(JSON.stringify(s.store.tasks()), snap, "replay is a no-op");
   // restart: new process, same dir
-  const s2 = new SalesSystem(new SalesStore(s.store.dir), { capacity: 6, researchLimit: 10, blocklists: [] });
+  const s2 = new SalesSystem(new SalesStore(s.store.dir), { capacity: 6, researchLimit: 10, blocklists: [], igRuntime: "/nonexistent-ig", partnerPerDay: 3 });
   s2.converge(h(4));
   assert.equal(JSON.stringify(s2.store.tasks()), snap, "restart converges to the same tasks");
   assert.equal(s2.approvals.all().filter((a) => a.status === "pending").length, 1);
@@ -253,7 +253,7 @@ test("internal/test registrations never become leads", () => {
 });
 
 test("capacity: contact tasks beyond the daily capacity are flagged, best intent first", () => {
-  const s = new SalesSystem(new SalesStore(mkdtempSync(join(tmpdir(), "sales-cap-"))), { capacity: 1, researchLimit: 10, blocklists: [] });
+  const s = new SalesSystem(new SalesStore(mkdtempSync(join(tmpdir(), "sales-cap-"))), { capacity: 1, researchLimit: 10, blocklists: [], igRuntime: "/nonexistent-ig", partnerPerDay: 3 });
   s.ingest([
     ev({ id: "s:1", kind: "signup", email: "a@one-reinigung.de", at: new Date(T0.getTime() - 86400000 * 2).toISOString() }),
     ev({ id: "i:1", kind: "inquiry", email: "b@two-reinigung.de", phone: "0301111111" }),
