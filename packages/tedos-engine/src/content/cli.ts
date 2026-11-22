@@ -17,7 +17,7 @@
 //   npm run content -- notion [--schreiben]                     Sync (Standard: Trockenlauf; ohne Token: Export)
 //   npm run content -- bericht [--woche 2026-KW49]              Content → Sales Wochenbericht (liest Sales nur)
 //
-// Geheimnisse nur aus der Umgebung (content.sh liest sie aus dem Keychain). Nie geloggt.
+// Geheimnisse nur aus der Umgebung (content.sh lädt sie aus dem lokalen Geheimnisspeicher). Nie geloggt.
 
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
         return;
       }
       const token = process.env.APIFY_TOKEN;
-      if (!token) throw new Error("APIFY_TOKEN fehlt (Keychain heyaudit-apify, über content.sh) — blockiert");
+      if (!token) throw new Error("APIFY_TOKEN fehlt — blockiert (Zugang lokal bereitstellen, siehe Betriebsnotiz)");
       const client = new ApifyClient(token);
       const max = Number(arg(a, "--batches") ?? 1);
       const follower = Object.fromEntries(acc.filter((x) => x.follower).map((x) => [x.id, x.follower as number]));

@@ -345,3 +345,18 @@ test("Sales-Job instagram ruft den Content-Schritt auf; ohne contentDir bleibt e
   const ohne = new SalesSystem(new SalesStore(mkdtempSync(join(tmpdir(), "sales-"))), { capacity: 6, researchLimit: 10, blocklists: [], igRuntime: "/nonexistent-ig", partnerPerDay: 3 });
   assert.doesNotMatch(ohne.jobInstagram(JETZT), /Content/);
 });
+
+test("Bericht: unbestätigte IG-Antwort ist kein Lead; bestätigte mit Content-ID wird beobachtet zugeordnet", async () => {
+  const { igAntwortEreignis, pruefeIgAntwort, pruefeIgErfassung } = await import("../sales/kanaele.js");
+  const a = pruefeIgAntwort({ handle: "glanz.gr", text: "Cooles Video", at: "2026-12-01T09:00:00Z" })!;
+  const b = pruefeIgAntwort({ handle: "sauber.kg", text: "Ruft mich bitte an", at: "2026-12-02T09:00:00Z" })!;
+  const states = resolveAccounts([
+    igAntwortEreignis(a),
+    igAntwortEreignis(b, undefined, pruefeIgErfassung({ kontaktErbeten: true, content: "ig-2026-kw49-cv2" })),
+  ]).map(accountState);
+  const attr = attribuiere(states);
+  assert.equal(attr.length, 1);
+  assert.equal(attr[0]!.account.includes("sauber.kg"), true);
+  assert.equal(attr[0]!.art, "beobachtet");
+  assert.equal(attr[0]!.letzterKontakt, "cv-2026kw49-2");
+});

@@ -8,7 +8,7 @@
 // Ändert sich dort etwas, muss dieser Katalog nachgezogen werden (Test prüft das Datum).
 
 export const FAKTEN_STAND = "2026-11-22";
-export const FAKTEN_QUELLE = "~/dev/heyaudit @3933b4ea: app/llms.txt/route.ts, lib/billing/plans.ts";
+export const FAKTEN_QUELLE = "HeyAudit-App @3933b4ea: app/llms.txt/route.ts, lib/billing/plans.ts";
 
 export interface Fakt { id: string; aussage: string; quelle: string; grenze?: string }
 
@@ -40,7 +40,7 @@ export const FAKTEN: readonly Fakt[] = [
   { id: "F-ERECHNUNG", aussage: "XRechnung und ZUGFeRD aus Arbeitsschein und Auftrag, ab Business.", quelle: LLMS, grenze: "Kein Buchhaltungssystem, kein Versand über Peppol oder Behördenportale." },
   { id: "F-LOHN-GRENZE", aussage: "Die Abrechnung rechnet brutto. Lohnsteuer, Sozialversicherung und Nettolohn bleiben bei DATEV, Lexware oder der Steuerberatung.", quelle: LLMS },
   { id: "F-STANDORT", aussage: "Anwendung und Datenbank laufen in Frankfurt am Main.", quelle: LLMS, grenze: "KI-Verarbeitung (Pro) über OpenAI in den USA." },
-  { id: "F-DEMO", aussage: "Ted zeigt HeyAudit in einer Online-Demo; Termin über die Buchungsseite oder das Demo-Formular auf heyaudit.de/demo.", quelle: "src/sales/drafts.ts (DEMO_BOOKING_URL), ~/dev/heyaudit app/demo", grenze: "Dauer „20 Minuten“ ist Teds eigenes Angebot aus den DM-Entwürfen — vor Nennung bestätigen." },
+  { id: "F-DEMO", aussage: "Ted zeigt HeyAudit in einer Online-Demo; Termin über die Buchungsseite oder das Demo-Formular auf heyaudit.de/demo.", quelle: "src/sales/drafts.ts (DEMO_BOOKING_URL), HeyAudit-App app/demo", grenze: "Dauer „20 Minuten“ ist Teds eigenes Angebot aus den DM-Entwürfen — vor Nennung bestätigen." },
 ];
 
 const NACH_ID = new Map(FAKTEN.map((f) => [f.id, f]));

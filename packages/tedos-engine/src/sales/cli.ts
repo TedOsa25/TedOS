@@ -9,7 +9,8 @@
 //   npm run sales -- aufgaben | status | konten
 //   npm run sales -- pause [<job>] | weiter [<job>] | reset <job>
 //   npm run sales -- webhook [--port 4610]        local receiver (HMAC, writes spool)
-//   npm run sales -- ig-antwort --handle <h> --text "…" [--name "…"] [--at ISO] [--content ig-2026-kw49-cv3]   IG-Runde: Antwort erfassen
+//   npm run sales -- ig-antwort --handle <h> --text "…" [--name "…"] [--at ISO]   IG-Runde: Antwort erfassen (kein Lead)
+//                              [--kontakt-erbeten [--content ig-2026-kw49-cv3]]   nur bei ausdrücklicher Bitte: Lead (+ Content-Kampagne)
 //   npm run sales -- ig-gesendet <goalId>         IG-Runde: freigegebene Antwort wurde gesendet
 //   npm run sales -- partner [<id> <status>]      Partnerliste / Status setzen (gespraech|partner|abgesagt|gesperrt|kontaktiert)
 //   npm run sales -- freigaben                    offene Entwürfe in der Sales-Freigabe
@@ -26,8 +27,7 @@ import { berlinDay, fromPilotEvent, normalizeEmail, validateEvent, type SalesEve
 import { setPaused, resetJob, tick } from "./scheduler.js";
 import { LockBusyError, SalesStore } from "./store.js";
 import { configFromEnv, gesendetPrueferFromEnv, SalesSystem, smtpSenderFromEnv } from "./system.js";
-import { parseUtmCampaign } from "../content/modell.js";
-import { igAntwortEreignis, normHandle, pruefeIgAntwort } from "./kanaele.js";
+import { igAntwortEreignis, normHandle, pruefeIgAntwort, pruefeIgErfassung } from "./kanaele.js";
 import type { PartnerBestand, PartnerStatus } from "./partner.js";
 
 const STATE = process.env.SALES_STATE_DIR ?? join(homedir(), "dev", "tedos-runtime", "heyaudit-sales");
@@ -182,16 +182,13 @@ async function main(): Promise<void> {
     case "ig-antwort": {
       const a = pruefeIgAntwort({ handle: arg(args, "--handle"), text: arg(args, "--text"), name: arg(args, "--name"), at: arg(args, "--at") ?? now.toISOString() });
       if (!a) throw new Error("--handle und --text sind Pflicht (Handle ohne @, Zeit als ISO)");
+      // Lead nur auf ausdrückliche, manuelle Bestätigung; der Nachrichtentext wird nicht gedeutet.
+      const contentWert = arg(args, "--content");
+      if (args.includes("--content") && (!contentWert || contentWert.startsWith("--"))) throw new Error("--content braucht einen Wert, z. B. ig-2026-kw49-cv3");
+      const erfassung = pruefeIgErfassung({ kontaktErbeten: args.includes("--kontakt-erbeten"), content: contentWert });
       const k = sys.igKontakte().find((x) => normHandle(x.handle) === a.handle);
-      const ev = igAntwortEreignis(a, k);
-      // Ausdrückliche Anfrage nach einem Content-Post: Content-ID als Kampagne mitgeben (beobachtete Attribution).
-      const content = arg(args, "--content");
-      if (content) {
-        if (!parseUtmCampaign(content)) throw new Error("--content muss eine Content-Kampagne sein, z. B. ig-2026-kw49-cv3");
-        ev.campaign = content.toLowerCase();
-        ev.note = `${ev.note ?? ""}\n[Anfragekontext: Nachricht nach Content ${content}]`;
-      }
-      console.log(store.withLock(() => { const r = sys.ingest([ev], now); sys.jobInstagram(now); return `${ev.id} · ${r}`; }));
+      const ev = igAntwortEreignis(a, k, erfassung);
+      console.log(store.withLock(() => { const r = sys.ingest([ev], now); sys.jobInstagram(now); return `${ev.id} · ${erfassung.kontaktErbeten ? "Kontaktanfrage (Lead)" : "Antwort erfasst, kein Lead"} · ${r}`; }));
       return;
     }
     case "ig-gesendet": {

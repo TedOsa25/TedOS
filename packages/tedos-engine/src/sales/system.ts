@@ -180,6 +180,13 @@ export class SalesSystem {
     return Object.values(b.kontakte ?? {});
   }
 
+  /** Plain IG answers (kontaktErbeten false) without a later confirmed request from the same handle. */
+  igAntwortenOhneKontaktwunsch(): number {
+    const evs = Object.values(this.store.events()).filter((e) => e.origin === "instagram" && e.kind === "reply");
+    const bestaetigt = new Set(evs.filter((e) => e.kontaktErbeten === true).map((e) => e.account));
+    return evs.filter((e) => e.kontaktErbeten === false && !bestaetigt.has(e.account)).length;
+  }
+
   private readGrowth<T>(file: string): T | undefined {
     const p = join(this.cfg.igRuntime, "growth", "eingang", file);
     try { return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as T) : undefined; } catch { return undefined; }
@@ -191,6 +198,7 @@ export class SalesSystem {
     return kanaeleAbschnitt({
       igKontakte: this.igKontakte(),
       igOffeneEntwuerfe: Object.values(drafted).filter((g) => pendingIds.has(g)).length,
+      igAntwortenOhneKontaktwunsch: this.igAntwortenOhneKontaktwunsch(),
       igFunnel: igFunnel(this.igKontakte(), states),
       ...(this.readGrowth<MetaZahlen>("meta.json") ? { meta: this.readGrowth<MetaZahlen>("meta.json") } : {}),
       ...(this.readGrowth<MetaAdsStand>("meta-ads.json") ? { metaAds: this.readGrowth<MetaAdsStand>("meta-ads.json") } : {}),
@@ -329,7 +337,8 @@ export class SalesSystem {
     const drafted = this.store.read<Record<string, string>>("ig-entwuerfe.json", {});
     let neu = 0;
     for (const e of Object.values(this.store.events())) {
-      if (e.origin !== "instagram" || e.kind !== "reply" || drafted[e.id]) continue;
+      // Drafts only for confirmed contact requests (and historical replies without the flag).
+      if (e.origin !== "instagram" || e.kind !== "reply" || e.kontaktErbeten === false || drafted[e.id]) continue;
       const a = igAntwortFreigabe(e);
       this.approvals.enqueue(a);
       drafted[e.id] = a.goalId;
