@@ -6,7 +6,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { RawMail } from "./inbound.js";
-import { igAntwortEreignis, igFunnel, metaLeadEreignis, pruefeIgAntwort } from "./kanaele.js";
+import { validateEvent } from "./model.js";
+import { igAntwortEreignis, igFunnel, metaLeadEreignis, pruefeIgAntwort, pruefeIgErfassung } from "./kanaele.js";
 import { ladeZiele, naechsteEntwuerfe, partnerAntworten, partnerEntwurf, type PartnerBestand } from "./partner.js";
 import { SalesStore } from "./store.js";
 import { SalesSystem } from "./system.js";
@@ -82,23 +83,74 @@ test("instagram reply → lead (source instagram) + review task + exactly one DM
   const a = pruefeIgAntwort({ handle: "@Glanz.Reinigung", text: "Klingt gut, was kostet das für 12 Leute?", at: "2026-11-19T07:00:00Z" });
   assert.ok(a);
   const k = s.igKontakte().find((x) => x.handle === "glanz.reinigung");
+  const lead = () => s.states().find((x) => x.account.keys.includes("acct:ig:glanz.reinigung"));
+  const drafts = () => s.approvals.all().filter((x) => x.goalId.startsWith("sales:ig-antwort:"));
+
+  // 1) Plain answer: recorded, NOT a lead, no task, no draft — even though the text sounds interested.
   const e = igAntwortEreignis(a, k);
+  assert.equal(e.kontaktErbeten, false);
   assert.equal(e.campaign, "ig-dm-folgen");
   assert.match(s.ingest([e], T0), /\+1 neu/);
   assert.match(s.ingest([igAntwortEreignis(a, k)], T0), /1 doppelt/, "replay = duplicate");
-  const st = s.states().find((x) => x.account.keys.includes("acct:ig:glanz.reinigung"));
-  assert.ok(st?.lead);
-  assert.equal(st?.source, "instagram");
+  assert.equal(lead()?.lead, false);
+  assert.ok(!Object.values(s.store.tasks()).some((t) => t.status === "open"));
+  s.jobInstagram(T0);
+  assert.equal(drafts().length, 0);
+  assert.match(readFileSync(join(s.store.dir, "AUFGABEN.md"), "utf8"), /1 Antwort\(en\) ohne bestätigten Kontaktwunsch/);
+
+  // 2) Same message, now confirmed by a human with --kontakt-erbeten → lead + task + exactly one draft.
+  const bestaetigt = igAntwortEreignis(a, k, pruefeIgErfassung({ kontaktErbeten: true }));
+  assert.equal(bestaetigt.id, `${e.id}:kontakt`);
+  assert.match(s.ingest([bestaetigt], T0), /\+1 neu/);
+  assert.ok(lead()?.lead);
+  assert.equal(lead()?.source, "instagram");
   assert.ok(Object.values(s.store.tasks()).some((t) => t.type === "review_reply" && t.status === "open"));
   s.jobInstagram(T0);
   s.jobInstagram(T0);
-  const drafts = s.approvals.all().filter((x) => x.goalId.startsWith("sales:ig-antwort:"));
-  assert.equal(drafts.length, 1);
-  assert.match(drafts[0]!.description, /was kostet das/);
+  assert.equal(drafts().length, 1);
+  assert.match(drafts()[0]!.description, /was kostet das/);
+  assert.doesNotMatch(readFileSync(join(s.store.dir, "AUFGABEN.md"), "utf8"), /ohne bestätigten Kontaktwunsch/);
   const f = igFunnel(s.igKontakte(), s.states());
   assert.equal(f[0]?.week, "2026-KW47");
-  assert.deepEqual({ g: f[0]?.gefolgt, a: f[0]?.angeschrieben, antw: f[0]?.antworten, l: f[0]?.leads }, { g: 2, a: 1, antw: 1, l: 1 });
+  assert.deepEqual({ g: f[0]?.gefolgt, a: f[0]?.angeschrieben, antw: f[0]?.antworten, l: f[0]?.leads }, { g: 2, a: 1, antw: 1, l: 1 }, "same message counted once");
   assert.match(readFileSync(join(s.store.dir, "AUFGABEN.md"), "utf8"), /## Kanäle[\s\S]*Instagram/);
+});
+
+test("instagram: confirmed contact request with content ID → lead attributed to the content campaign", () => {
+  const s = fresh("/nonexistent-ig");
+  const a = pruefeIgAntwort({ handle: "sauber.team", text: "Bitte meldet euch bei mir", at: "2026-12-02T09:00:00Z" })!;
+  const ev = igAntwortEreignis(a, undefined, pruefeIgErfassung({ kontaktErbeten: true, content: "IG-2026-KW49-CV3" }));
+  assert.equal(ev.campaign, "ig-2026-kw49-cv3");
+  assert.match(ev.note ?? "", /nach Content ig-2026-kw49-cv3/);
+  s.ingest([ev], T0);
+  const st = s.states().find((x) => x.account.keys.includes("acct:ig:sauber.team"))!;
+  assert.ok(st.lead);
+  assert.equal(st.firstInterest?.campaign, "ig-2026-kw49-cv3");
+  assert.match(st.sourceDetail ?? "", /ig-2026-kw49-cv3/);
+});
+
+test("instagram: invalid flag combinations are rejected", () => {
+  assert.throws(() => pruefeIgErfassung({ kontaktErbeten: false, content: "ig-2026-kw49-cv3" }), /nur zusammen mit --kontakt-erbeten/);
+  assert.throws(() => pruefeIgErfassung({ kontaktErbeten: true, content: "ig-2026-kw47-planung" }), /Content-Kampagne/);
+  assert.throws(() => pruefeIgErfassung({ kontaktErbeten: true, content: "" }), /Content-Kampagne/);
+  assert.deepEqual(pruefeIgErfassung({ kontaktErbeten: true }), { kontaktErbeten: true });
+  assert.deepEqual(pruefeIgErfassung({ kontaktErbeten: false }), { kontaktErbeten: false });
+  assert.throws(() => validateEvent({ id: "gmail:1", kind: "signup", at: "2026-11-19T07:00:00Z", kontaktErbeten: true }), /nur für Antworten/);
+  assert.throws(() => validateEvent({ id: "instagram:x", kind: "reply", at: "2026-11-19T07:00:00Z", kontaktErbeten: "vielleicht" }), /true oder false/);
+});
+
+test("instagram: historical replies without the flag stay leads (no retroactive loss)", () => {
+  const s = fresh("/nonexistent-ig");
+  const alt = validateEvent({ id: "instagram:alt.firma:2026-11-15T10:00:abc", kind: "reply", at: "2026-11-15T10:00:00Z", origin: "instagram", account: "ig:alt.firma", company: "Alt Firma", source: "instagram", note: "Hallo" });
+  assert.equal(alt.kontaktErbeten, undefined);
+  s.ingest([alt], T0);
+  assert.ok(s.states().find((x) => x.account.keys.includes("acct:ig:alt.firma"))?.lead);
+  s.jobInstagram(T0);
+  assert.equal(s.approvals.all().filter((x) => x.goalId.startsWith("sales:ig-antwort:")).length, 1, "historical reply keeps its draft path");
+  // Mail replies are untouched by the new flag.
+  const mail = validateEvent({ id: "gmail:<r1@x.de>", kind: "reply", at: "2026-11-16T10:00:00Z", origin: "imap", email: "chef@reinigung-x.de" });
+  s.ingest([mail], T0);
+  assert.ok(s.states().find((x) => x.account.keys.includes("mail:chef@reinigung-x.de"))?.lead);
 });
 
 test("instagram input is validated (handle, text, time)", () => {
@@ -216,4 +268,20 @@ test("partner mail: no signature file or no Sent check → nothing sent", async 
   const ohne = new SalesSystem(s.store, s.cfg, async () => "x");
   await assert.rejects(ohne.jobPartnerVersand(MO_10), /Gesendet-Ordner/);
   assert.equal(sent.length, 0);
+});
+
+test("instagram: plain answer on an existing lead → only 'Antwort lesen', stops follow-ups, no DM draft, intent unchanged", () => {
+  const s = fresh("/nonexistent-ig");
+  s.ingest([validateEvent({ id: "signup-mail:chef@glanz-gr.de", kind: "signup", at: "2026-11-17T08:00:00Z", origin: "imap", email: "chef@glanz-gr.de", company: "Glanz Gebäudereinigung GmbH" })], T0);
+  const vorher = s.states().find((x) => x.account.keys.includes("mail:chef@glanz-gr.de"))!;
+  const a = pruefeIgAntwort({ handle: "glanz.gr", name: "Glanz Gebäudereinigung GmbH", text: "Danke!", at: "2026-11-19T07:00:00Z" })!;
+  s.ingest([igAntwortEreignis(a)], T0);
+  const st = s.states().find((x) => x.account.keys.includes("mail:chef@glanz-gr.de"))!;
+  assert.ok(st.lead, "lead stays (from signup)");
+  assert.equal(st.firstInterest?.kind, "signup", "first interest unchanged");
+  assert.equal(st.q.intentScore, vorher.q.intentScore, "plain answer is no buying signal");
+  const offen = Object.values(s.store.tasks()).filter((t) => t.status === "open");
+  assert.deepEqual(offen.map((t) => t.type), ["review_reply"]);
+  s.jobInstagram(T0);
+  assert.equal(s.approvals.all().filter((x) => x.goalId.startsWith("sales:ig-antwort:")).length, 0);
 });

@@ -10,3 +10,10 @@ runtime/*.tmp
 # Claude Code: lokale Einstellungen und Worktrees (maschinengebunden)
 .claude/settings.local.json
 .claude/worktrees/
+
+# Geheimnisse nie committen (öffentliches Repo)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem

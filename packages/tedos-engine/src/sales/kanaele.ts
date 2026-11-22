@@ -4,13 +4,18 @@
 // Instagram: following + the one thank-you DM run in an open Claude session
 // (skill ig-runde, Chrome) — Instagram forbids bots. That session records what
 // it saw in the IG runtime; this module turns it into sales facts:
-//   * a reply to our DM  → SalesEvent "reply" (source instagram) → lead + task
-//   * every reply        → a DM answer DRAFT in the approval queue (never sent here)
+//   * a reply to our DM            → SalesEvent "reply", kontaktErbeten:false → recorded, NOT a lead
+//   * reply + --kontakt-erbeten    → separate SalesEvent "reply", kontaktErbeten:true → lead + task
+//     (optionally --content <utm_campaign> for the content campaign)
+//   * only confirmed requests      → a DM answer DRAFT in the approval queue (never sent here)
+// The text is never interpreted: a human decides whether contact was requested.
+// Historical replies without the flag keep counting as leads (no retroactive loss).
 // Meta: campaign numbers come from the Growth-OS read connector (ads_read);
 // lead-form leads (if a page token with leads_retrieval exists) become
 // "inquiry" events. Nothing here publishes, sends or changes budgets.
 
 import type { ApprovalInput } from "../approval-queue.js";
+import { parseUtmCampaign } from "../content/modell.js";
 import { DEMO_BOOKING_URL } from "./drafts.js";
 import type { SalesEvent } from "./model.js";
 import { berlinWeek } from "./model.js";
@@ -54,7 +59,41 @@ export function igAntwortId(a: IgAntwort): string {
   return `instagram:${a.handle}:${a.at.slice(0, 16)}:${h.toString(36)}`;
 }
 
-export function igAntwortEreignis(a: IgAntwort, kontakt?: IgKontakt): SalesEvent {
+export interface IgErfassung { kontaktErbeten: boolean; content?: string }
+
+/**
+ * Validates the manual capture flags. --content is only allowed together with
+ * --kontakt-erbeten and must be a content campaign (e.g. ig-2026-kw49-cv3).
+ */
+export function pruefeIgErfassung(o: { kontaktErbeten: boolean; content?: string | undefined }): IgErfassung {
+  if (o.content !== undefined) {
+    if (!o.kontaktErbeten) throw new Error("--content ist nur zusammen mit --kontakt-erbeten erlaubt");
+    const c = o.content.trim().toLowerCase();
+    if (!parseUtmCampaign(c)) throw new Error("--content muss eine Content-Kampagne sein, z. B. ig-2026-kw49-cv3");
+    return { kontaktErbeten: true, content: c };
+  }
+  return { kontaktErbeten: o.kontaktErbeten };
+}
+
+/**
+ * Plain answer → id "instagram:<…>", kontaktErbeten false.
+ * Confirmed contact request → id "instagram:<…>:kontakt", kontaktErbeten true — a separate,
+ * idempotent event, so a later confirmation of an already recorded answer still takes effect
+ * (event merge only fills empty fields and would never flip false → true).
+ */
+export function igAntwortEreignis(a: IgAntwort, kontakt?: IgKontakt, erfassung: IgErfassung = { kontaktErbeten: false }): SalesEvent {
+  const basis = igAntwortEreignisRoh(a, kontakt);
+  if (!erfassung.kontaktErbeten) return { ...basis, kontaktErbeten: false };
+  return {
+    ...basis,
+    id: `${basis.id}:kontakt`,
+    kontaktErbeten: true,
+    ...(erfassung.content ? { campaign: erfassung.content } : {}),
+    note: `${basis.note ?? ""}\n[Kontakt ausdrücklich erbeten — manuell bestätigt${erfassung.content ? `, nach Content ${erfassung.content}` : ""}]`,
+  };
+}
+
+function igAntwortEreignisRoh(a: IgAntwort, kontakt?: IgKontakt): SalesEvent {
   return {
     id: igAntwortId(a),
     kind: "reply",
@@ -116,7 +155,9 @@ export function igFunnel(kontakte: IgKontakt[], states: AccountState[]): IgFunne
     if (k.angeschriebenAm) row(k.angeschriebenAm).angeschrieben++;
   }
   for (const s of states) {
-    for (const e of s.account.events) if (e.origin === "instagram" && e.kind === "reply") row(e.at).antworten++;
+    // Same message captured first as answer and later as confirmed request counts once.
+    const ids = new Set(s.account.events.filter((e) => e.origin === "instagram" && e.kind === "reply").map((e) => e.id.replace(/:kontakt$/, "")));
+    for (const e of s.account.events) if (e.origin === "instagram" && e.kind === "reply" && ids.delete(e.id.replace(/:kontakt$/, ""))) row(e.at).antworten++;
     if (s.lead && s.source === "instagram" && s.firstInterest) row(s.firstInterest.at).leads++;
   }
   return [...rows.values()].sort((a, b) => (a.week < b.week ? 1 : -1));
@@ -162,6 +203,7 @@ export interface MetaZahlen { stand?: string; zeitraum?: string; ausgabenEur?: n
 export function kanaeleAbschnitt(o: {
   igKontakte: IgKontakt[];
   igOffeneEntwuerfe: number;
+  igAntwortenOhneKontaktwunsch?: number;
   igFunnel: IgFunnelZeile[];
   meta?: MetaZahlen | undefined;
   metaAds?: MetaAdsStand | undefined;
@@ -174,6 +216,7 @@ export function kanaeleAbschnitt(o: {
   const w = o.igFunnel[0];
   if (w) lines.push(`- ${w.week}: ${w.gefolgt} gefolgt, ${w.zurueck} zurück, ${w.angeschrieben} Danke-DMs, ${w.antworten} Antworten, ${w.leads} Leads`);
   if (o.igOffeneEntwuerfe) lines.push(`- ${o.igOffeneEntwuerfe} DM-Antwortentwurf/-entwürfe warten auf Freigabe`);
+  if (o.igAntwortenOhneKontaktwunsch) lines.push(`- ${o.igAntwortenOhneKontaktwunsch} Antwort(en) ohne bestätigten Kontaktwunsch (kein Lead, kein Entwurf) — bei ausdrücklicher Bitte erneut mit --kontakt-erbeten erfassen`);
   lines.push("- Folgen + Danke-DM laufen nur in der offenen Sitzung („IG-Runde“), kein Bot.");
   lines.push("", "**Meta**");
   if (o.meta) lines.push(`- ${o.meta.zeitraum ?? "Zeitraum ?"}: ${o.meta.ausgabenEur ?? "?"} € Ausgaben, ${o.meta.klicks ?? "?"} Klicks, ${o.meta.leads ?? "?"} zugeordnete Registrierungen (Stand ${o.meta.stand?.slice(0, 16) ?? "?"})`);

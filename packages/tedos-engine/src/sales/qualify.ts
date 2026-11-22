@@ -6,7 +6,7 @@
 // Only first-party actions (booking, inquiry, signup, reply) create intent.
 
 import type { SalesEvent } from "./model.js";
-import { companyKey, registrableDomain } from "./model.js";
+import { companyKey, registrableDomain, zaehltAlsInteresse } from "./model.js";
 
 export const QUALIFY_VERSION = "qualifizierung@1";
 
@@ -92,7 +92,8 @@ export function qualify(events: SalesEvent[]): Qualification {
   const has = (k: SalesEvent["kind"]) => events.some((e) => e.kind === k);
   if (has("booking") || has("booking_rescheduled")) { score = Math.max(score, 100); intentReasons.push("Demo selbst gebucht"); }
   if (has("inquiry")) { score = Math.max(score, 80); intentReasons.push("Demo-/Kontaktanfrage gestellt"); }
-  if (has("reply")) { score = Math.max(score, 70); intentReasons.push("Hat persönlich geantwortet"); }
+  // A plain Instagram answer (kontaktErbeten === false) is no buying signal.
+  if (events.some((e) => e.kind === "reply" && zaehltAlsInteresse(e))) { score = Math.max(score, 70); intentReasons.push("Hat persönlich geantwortet"); }
   if (has("signup")) {
     const phone = events.some((e) => e.phone);
     const s = phone ? 60 : 40;

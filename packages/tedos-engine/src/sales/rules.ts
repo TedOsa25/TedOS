@@ -7,7 +7,7 @@
 // a freemail signup later linked to a company booking) cannot duplicate tasks.
 
 import type { SalesEvent } from "./model.js";
-import { addBusinessDays, identityKeys, INTEREST_KINDS, normalizeEmail } from "./model.js";
+import { addBusinessDays, identityKeys, normalizeEmail, zaehltAlsInteresse } from "./model.js";
 import type { Qualification } from "./qualify.js";
 import { priorityScore, qualify } from "./qualify.js";
 import type { SalesTask, TaskType } from "./store.js";
@@ -134,7 +134,7 @@ export function accountState(account: Account): AccountState {
       default: break;
     }
   }
-  const firstInterest = evs.find((e) => INTEREST_KINDS.includes(e.kind));
+  const firstInterest = evs.find(zaehltAlsInteresse);
   const lead = Boolean(firstInterest) && !q.internal;
   const contactEv = [...evs].reverse();
   const email = contactEv.map((e) => normalizeEmail(e.email)).find((m) => m && !bounced.has(m) && !optedOut.has(m));

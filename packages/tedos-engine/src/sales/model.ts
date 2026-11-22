@@ -33,6 +33,19 @@ export const EVENT_KINDS: readonly EventKind[] = [
 /** Kinds that prove real interest — only these turn an account into a lead. */
 export const INTEREST_KINDS: readonly EventKind[] = ["signup", "inquiry", "booking", "reply"];
 
+/**
+ * Does this event make the account a lead?
+ * A reply only counts when it is not explicitly marked as "no contact requested":
+ *   kontaktErbeten === false → recorded answer, NOT a lead (Instagram since 2026-11-22)
+ *   kontaktErbeten === true  → explicitly confirmed contact request → lead
+ *   undefined                → historical/mail reply → unchanged behaviour (lead)
+ * The message text is never interpreted.
+ */
+export function zaehltAlsInteresse(e: Pick<SalesEvent, "kind" | "kontaktErbeten">): boolean {
+  if (!INTEREST_KINDS.includes(e.kind)) return false;
+  return !(e.kind === "reply" && e.kontaktErbeten === false);
+}
+
 export type Fit = "yes" | "no" | "unknown";
 
 export interface SalesEvent {
@@ -67,6 +80,8 @@ export interface SalesEvent {
   valueEur?: number;
   /** Explicit account override when identity rules can't resolve it. */
   account?: string;
+  /** Reply only: true = contact explicitly requested (set by a human), false = plain answer, not a lead. */
+  kontaktErbeten?: boolean;
 }
 
 const FREEMAIL = new Set([
@@ -214,6 +229,13 @@ export function validateEvent(raw: unknown): SalesEvent {
     }
   }
   if (fit) e.fit = fit;
+  const ke = r.kontaktErbeten;
+  if (ke !== undefined && ke !== null && ke !== "") {
+    if (ke === true || ke === "true") e.kontaktErbeten = true;
+    else if (ke === false || ke === "false") e.kontaktErbeten = false;
+    else throw new Error("kontaktErbeten muss true oder false sein");
+    if (kind !== "reply") throw new Error("kontaktErbeten gilt nur für Antworten (kind reply)");
+  }
   const val = r.valueEur;
   if (val !== undefined && val !== null && val !== "") {
     const n = Number(val);

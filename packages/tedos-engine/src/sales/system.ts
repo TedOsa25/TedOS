@@ -21,6 +21,7 @@ import { accountState, reconcile, resolveAccounts, stillValid } from "./rules.js
 import type { JobDef } from "./scheduler.js";
 import type { SalesStore, SalesTask } from "./store.js";
 import { igAntwortFreigabe, igFunnel, kanaeleAbschnitt, type IgKontakt, type MetaAdsStand, type MetaZahlen } from "./kanaele.js";
+import { contentLoopSchritt, ContentStore } from "../content/zustand.js";
 import { darfPartnerSenden, freigegebeneMail, ladeZiele, naechsteEntwuerfe, PARTNER_KANAL, PARTNER_ZWECK, partnerAbschnitt, partnerAntworten, partnerFreigabe, type PartnerBestand, type PartnerZiel } from "./partner.js";
 
 const ENGINE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -36,6 +37,8 @@ export interface Config {
   igRuntime: string;
   /** Partner first-contact DRAFTS per weekday (nothing is sent). */
   partnerPerDay: number;
+  /** Content-System (Redaktionspläne, Ideen). Außerhalb von Git. Fehlt = Content-Schritt aus (Tests). */
+  contentDir?: string;
 }
 
 export function configFromEnv(): Config {
@@ -45,6 +48,7 @@ export function configFromEnv(): Config {
     blocklists: (process.env.SALES_SPERRLISTEN ?? "").split(":").filter(Boolean),
     igRuntime: process.env.SALES_IG_RUNTIME ?? join(homedir(), "dev", "heyaudit-ig-runtime"),
     partnerPerDay: Number(process.env.SALES_PARTNER_PRO_TAG ?? 3),
+    contentDir: process.env.CONTENT_STATE_DIR ?? join(homedir(), "dev", "tedos-runtime", "heyaudit-content"),
   };
 }
 
@@ -89,6 +93,8 @@ export function smtpSenderFromEnv(): MailSender | undefined {
 
 export class SalesSystem {
   readonly approvals: ApprovalQueue;
+  /** Letzter Stand des Content-Loop-Schritts (für AUFGABEN.md). */
+  contentStand = "";
   constructor(readonly store: SalesStore, readonly cfg: Config, readonly sendMail: MailSender | undefined = undefined, readonly gesendetPruefer: GesendetPruefer | undefined = undefined) {
     this.approvals = new ApprovalQueue(new JsonFileStorage(join(store.dir, "approvals")));
   }
@@ -174,6 +180,13 @@ export class SalesSystem {
     return Object.values(b.kontakte ?? {});
   }
 
+  /** Plain IG answers (kontaktErbeten false) without a later confirmed request from the same handle. */
+  igAntwortenOhneKontaktwunsch(): number {
+    const evs = Object.values(this.store.events()).filter((e) => e.origin === "instagram" && e.kind === "reply");
+    const bestaetigt = new Set(evs.filter((e) => e.kontaktErbeten === true).map((e) => e.account));
+    return evs.filter((e) => e.kontaktErbeten === false && !bestaetigt.has(e.account)).length;
+  }
+
   private readGrowth<T>(file: string): T | undefined {
     const p = join(this.cfg.igRuntime, "growth", "eingang", file);
     try { return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as T) : undefined; } catch { return undefined; }
@@ -185,12 +198,13 @@ export class SalesSystem {
     return kanaeleAbschnitt({
       igKontakte: this.igKontakte(),
       igOffeneEntwuerfe: Object.values(drafted).filter((g) => pendingIds.has(g)).length,
+      igAntwortenOhneKontaktwunsch: this.igAntwortenOhneKontaktwunsch(),
       igFunnel: igFunnel(this.igKontakte(), states),
       ...(this.readGrowth<MetaZahlen>("meta.json") ? { meta: this.readGrowth<MetaZahlen>("meta.json") } : {}),
       ...(this.readGrowth<MetaAdsStand>("meta-ads.json") ? { metaAds: this.readGrowth<MetaAdsStand>("meta-ads.json") } : {}),
       metaLeadsHinweis: "kein Meta-Leadformular angebunden (braucht Seiten-Token mit leads_retrieval); Leads aus Export per Spool möglich",
       ...(this.store.jobs().growth?.lastResult ? { growthLauf: this.store.jobs().growth?.lastResult } : {}),
-    });
+    }) + (this.contentStand ? `\n\n**Content (Redaktionsplan)**\n- ${this.contentStand}\n- Fällige Posts: \`npm run content -- ig-faellig\`, danach \`content -- veroeffentlicht <pubId> --url …\`` : "");
   }
 
   // ── jobs ──────────────────────────────────────────────────────────────
@@ -323,7 +337,8 @@ export class SalesSystem {
     const drafted = this.store.read<Record<string, string>>("ig-entwuerfe.json", {});
     let neu = 0;
     for (const e of Object.values(this.store.events())) {
-      if (e.origin !== "instagram" || e.kind !== "reply" || drafted[e.id]) continue;
+      // Drafts only for confirmed contact requests (and historical replies without the flag).
+      if (e.origin !== "instagram" || e.kind !== "reply" || e.kontaktErbeten === false || drafted[e.id]) continue;
       const a = igAntwortFreigabe(e);
       this.approvals.enqueue(a);
       drafted[e.id] = a.goalId;
@@ -331,8 +346,14 @@ export class SalesSystem {
     }
     if (neu) this.store.write("ig-entwuerfe.json", drafted);
     const k = this.igKontakte();
+    // Content-Bibliothek: freigegebene Wochenpläne übernehmen, fällige IG-Posts melden.
+    // Fehler hier dürfen die DM-Verarbeitung nie stoppen.
+    let content = "";
+    if (this.cfg.contentDir) try { content = " · " + contentLoopSchritt(new ContentStore(this.cfg.contentDir), this.approvals.all(), now).text; }
+    catch (e) { content = ` · Content: Fehler ${(e as Error).message.slice(0, 120)}`; }
+    this.contentStand = content.replace(/^ · /, "");
     this.converge(now);
-    return `Instagram: ${k.length} Firmen im Bestand, ${Object.keys(drafted).length} Antworten erfasst, +${neu} Antwortentwürfe in Freigabe`;
+    return `Instagram: ${k.length} Firmen im Bestand, ${Object.keys(drafted).length} Antworten erfasst, +${neu} Antwortentwürfe in Freigabe${content}`;
   }
 
   /** Partner first-contact drafts → approval queue. Sends nothing. */
